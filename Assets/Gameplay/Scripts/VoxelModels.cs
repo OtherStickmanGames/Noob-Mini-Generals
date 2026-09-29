@@ -24,6 +24,7 @@ namespace Generals
             {
                 StructureType.Headquarters => Headquarters(team),
                 StructureType.Extractor => Extractor(team),
+                StructureType.Mine => Mine(team),
                 StructureType.Barracks => Barracks(team),
                 _ => Turret(team),
             });
@@ -73,7 +74,23 @@ namespace Generals
             return m;
         }
 
+        // Добытчик базового ресурса: кирпичная установка с баком и трубой
         static Model Extractor(int team)
+        {
+            byte color = TeamColor(team), dark = TeamColorDark(team);
+            var m = new Model(6, 11, 6);
+            m.Box(0, 0, 0, 6, 1, 6, Stone);
+            m.Box(0, 1, 0, 6, 4, 4, Wall);             // корпус
+            m.Box(0, 5, 0, 6, 1, 4, color);            // крыша цвета команды
+            m.Box(1, 1, 4, 4, 4, 2, Metal);            // бак
+            m.Box(1, 5, 4, 4, 1, 2, dark);
+            m.Box(4, 6, 1, 1, 5, 1, Metal);            // труба
+            m.Box(2, 2, 3, 2, 2, 1, dark);             // окно
+            return m;
+        }
+
+        // Шахта ценного ресурса: каркас с буром над рудой
+        static Model Mine(int team)
         {
             byte color = TeamColor(team);
             var m = new Model(6, 10, 6);

@@ -11,7 +11,7 @@ namespace Generals
         readonly ArenaLayout layout;
         readonly int sx, sz;
         readonly bool[] occupied;
-        // Клетки месторождений (3x3) — на них можно ставить только добытчик
+        // Клетки месторождений и точек захвата (3x3) — на них можно ставить только шахту
         readonly bool[] depositCells;
 
         public BuildGrid(VoxelArena arena)
@@ -66,7 +66,7 @@ namespace Generals
             }
 
             if (def.rule == PlacementRule.Deposit)
-                return CanPlaceExtractor(faction, def, min, out reason, out capturePoint);
+                return CanPlaceMine(faction, def, min, out reason, out capturePoint);
 
             // Зона: внутри своих стен или на площадке своей базы
             for (int z = min.y; z < min.y + size.y; z++)
@@ -76,7 +76,7 @@ namespace Generals
                     int i = Idx(x, z);
                     if (depositCells[i])
                     {
-                        reason = "Здесь месторождение — только для добытчика";
+                        reason = "Здесь месторождение — только для шахты";
                         return false;
                     }
 
@@ -122,8 +122,8 @@ namespace Generals
             return team == faction.team && level <= faction.wallLevel;
         }
 
-        // Добытчик: центр — на месторождении своей базы (внутри открытых стен) или на своей точке захвата
-        bool CanPlaceExtractor(Faction faction, StructureDef def, int2 min, out string reason, out CapturePoint capturePoint)
+        // Шахта: центр — на месторождении своей базы (внутри открытых стен) или на своей точке захвата
+        bool CanPlaceMine(Faction faction, StructureDef def, int2 min, out string reason, out CapturePoint capturePoint)
         {
             capturePoint = null;
             var center = min + def.footprint / 2;
@@ -155,9 +155,9 @@ namespace Generals
                     reason = "Сначала захватите точку";
                     return false;
                 }
-                if (point.Extractor != null)
+                if (point.Mine != null)
                 {
-                    reason = "На точке уже есть добытчик";
+                    reason = "На точке уже есть шахта";
                     return false;
                 }
                 capturePoint = point;
@@ -165,7 +165,31 @@ namespace Generals
                 return true;
             }
 
-            reason = "Добытчик ставится на месторождение или захваченную точку";
+            reason = "Шахта ставится на месторождение или захваченную точку";
+            return false;
+        }
+
+        /// <summary>
+        /// Ближайшее к центру место, где здание можно поставить: расходящимися квадратами до radius клеток
+        /// </summary>
+        public bool FindNearest(Faction faction, StructureDef def, int2 center, int radius, out int2 min)
+        {
+            var start = MinFromCenter(def, center);
+            for (int r = 0; r <= radius; r++)
+            {
+                for (int dz = -r; dz <= r; dz++)
+                {
+                    for (int dx = -r; dx <= r; dx++)
+                    {
+                        if (math.max(math.abs(dx), math.abs(dz)) != r)
+                            continue;
+                        min = start + new int2(dx, dz);
+                        if (CanPlace(faction, def, min, out _, out _))
+                            return true;
+                    }
+                }
+            }
+            min = start;
             return false;
         }
 

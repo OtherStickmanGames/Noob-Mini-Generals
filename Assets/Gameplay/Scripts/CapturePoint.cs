@@ -14,7 +14,7 @@ namespace Generals
 
     /// <summary>
     /// Точка захвата с ценным ресурсом. Захватывает сторона, чьи юниты стоят в радиусе одни.
-    /// Пока точка своя — капает ценный ресурс; добытчик на ней даёт больше.
+    /// Пока точка своя — капает ценный ресурс; шахта на ней даёт больше.
     /// </summary>
     public class CapturePoint : MonoBehaviour
     {
@@ -28,7 +28,7 @@ namespace Generals
         /// <summary>Прогресс захвата 0..1 стороной CapturingTeam</summary>
         public float Progress { get; private set; }
         public int CapturingTeam { get; private set; } = -1;
-        public Structure Extractor { get; set; }
+        public Structure Mine { get; set; }
 
         MeshFilter flag;
 

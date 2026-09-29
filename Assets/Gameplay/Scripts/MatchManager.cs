@@ -6,7 +6,7 @@ using UnityEngine.AI;
 namespace Generals
 {
     /// <summary>
-    /// Бой: две стороны, стартовые здания (главное и добытчик), строители, точки захвата,
+    /// Бой: две стороны, стартовые здания (главное и добытчик рядом с ним), строители, точки захвата,
     /// заказ построек и найм строителей.
     /// </summary>
     public class MatchManager : MonoBehaviour
@@ -71,15 +71,10 @@ namespace Generals
                 var hqDef = StructureCatalog.Get(StructureType.Headquarters);
                 faction.headquarters = PlaceStructure(faction, hqDef, BuildGrid.MinFromCenter(hqDef, baseCell), true, null);
 
-                // Стартовый добытчик на первом месторождении внутри стен 1-го уровня
-                foreach (var r in layout.resources)
-                {
-                    if (r.kind != ResourceKind.BaseDeposit || r.team != faction.team || r.wallLevel != 1)
-                        continue;
-                    var def = StructureCatalog.Get(StructureType.Extractor);
-                    PlaceStructure(faction, def, BuildGrid.MinFromCenter(def, r.cell), true, null);
-                    break;
-                }
+                // Стартовый добытчик — рядом с главным зданием, внутри стен
+                var extractorDef = StructureCatalog.Get(StructureType.Extractor);
+                if (Grid.FindNearest(faction, extractorDef, baseCell, 12, out var extractorMin))
+                    PlaceStructure(faction, extractorDef, extractorMin, true, null);
             }
         }
 
@@ -139,7 +134,7 @@ namespace Generals
             faction.structures.Add(structure);
             Grid.SetOccupied(min, def.footprint, true);
             if (capturePoint != null)
-                capturePoint.Extractor = structure;
+                capturePoint.Mine = structure;
             return structure;
         }
 

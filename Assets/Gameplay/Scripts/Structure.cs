@@ -16,7 +16,7 @@ namespace Generals
         public bool IsBuilt { get; private set; }
         public float Progress { get; private set; }
         public float Health { get; private set; }
-        /// <summary>Для добытчика на точке захвата</summary>
+        /// <summary>Для шахты на точке захвата</summary>
         public CapturePoint CapturePoint { get; private set; }
         public BuilderUnit AssignedBuilder { get; set; }
 
@@ -114,10 +114,14 @@ namespace Generals
                     break;
 
                 case StructureType.Extractor:
+                    Faction.baseResource += StructureCatalog.ExtractorIncome * dt;
+                    break;
+
+                case StructureType.Mine:
                     if (CapturePoint == null)
-                        Faction.baseResource += StructureCatalog.ExtractorBaseIncome * dt;
+                        Faction.valuable += StructureCatalog.MineDepositIncome * dt;
                     else if (CapturePoint.Owner == Faction.team)
-                        Faction.valuable += StructureCatalog.ExtractorValuableIncome * dt;
+                        Faction.valuable += StructureCatalog.MineCaptureIncome * dt;
                     break;
             }
         }

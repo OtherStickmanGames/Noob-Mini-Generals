@@ -225,7 +225,7 @@ namespace Generals
 
         int2 FindInitialSpot(StructureDef def, int2 center)
         {
-            // Добытчик — на ближайшее доступное месторождение или свою точку
+            // Шахта — на ближайшее доступное месторождение или свою точку
             if (def.rule == PlacementRule.Deposit)
             {
                 int2 best = BuildGrid.MinFromCenter(def, center);
@@ -245,23 +245,9 @@ namespace Generals
                 return best;
             }
 
-            // Остальное — первая подходящая клетка по расходящимся квадратам от центра
-            var start = BuildGrid.MinFromCenter(def, center);
-            for (int r = 0; r <= 20; r++)
-            {
-                for (int dz = -r; dz <= r; dz++)
-                {
-                    for (int dx = -r; dx <= r; dx++)
-                    {
-                        if (math.max(math.abs(dx), math.abs(dz)) != r)
-                            continue;
-                        var min = start + new int2(dx, dz);
-                        if (Match.Grid.CanPlace(Player, def, min, out _, out _))
-                            return min;
-                    }
-                }
-            }
-            return start;
+            // Остальное — ближайшее подходящее место от центра экрана
+            Match.Grid.FindNearest(Player, def, center, 20, out var spot);
+            return spot;
         }
 
         // Нажатие на здание (или рядом, на клетку) при установке — начинаем его тащить
@@ -286,7 +272,7 @@ namespace Generals
 
         void SetGhostMin(int2 min)
         {
-            // Добытчик прилипает к ближайшему месторождению или точке
+            // Шахта прилипает к ближайшему месторождению или точке
             if (placingDef.rule == PlacementRule.Deposit &&
                 Match.Grid.SnapToResource(min + placingDef.footprint / 2, 4, out var resource))
                 min = BuildGrid.MinFromCenter(placingDef, resource);
@@ -409,7 +395,13 @@ namespace Generals
             }
             else if (selected.Def.type == StructureType.Extractor)
             {
-                selectionInfo.text = selected.CapturePoint == null ? "Добывает базовый ресурс" : "Добывает ценный ресурс";
+                selectionInfo.text = "Добывает базовый ресурс";
+            }
+            else if (selected.Def.type == StructureType.Mine)
+            {
+                selectionInfo.text = selected.CapturePoint == null
+                    ? "Добывает ценный ресурс с месторождения"
+                    : selected.CapturePoint.Owner == Player.team ? "Добывает ценный ресурс с точки" : "Точка потеряна — добыча стоит";
             }
             else
             {

@@ -7,6 +7,7 @@ namespace Generals
     {
         Headquarters,
         Extractor,
+        Mine,
         Barracks,
         Turret,
     }
@@ -17,7 +18,7 @@ namespace Generals
         InsideWalls,
         /// <summary>На ровной площадке базы (оборонительные постройки)</summary>
         BaseArea,
-        /// <summary>Центром на месторождение внутри стен или на свою точку захвата</summary>
+        /// <summary>Центром на месторождение своей базы или на свою точку захвата</summary>
         Deposit,
     }
 
@@ -62,6 +63,17 @@ namespace Generals
                 costBase = 100,
                 buildTime = 12f,
                 health = 500f,
+                rule = PlacementRule.InsideWalls,
+                buildable = true,
+            },
+            [StructureType.Mine] = new StructureDef
+            {
+                type = StructureType.Mine,
+                name = "Шахта",
+                footprint = new int2(3, 3),
+                costBase = 150,
+                buildTime = 15f,
+                health = 600f,
                 rule = PlacementRule.Deposit,
                 buildable = true,
             },
@@ -97,9 +109,10 @@ namespace Generals
         public const int StartBase = 250;
         public const int StartValuable = 0;
         public const float HeadquartersIncome = 1f;          // базовый ресурс в секунду
-        public const float ExtractorBaseIncome = 2f;         // с месторождения на базе
+        public const float ExtractorIncome = 2f;             // базовый — с добытчика (ставится где угодно внутри стен)
         public const float CapturePointIncome = 0.5f;        // ценный — за захваченную точку
-        public const float ExtractorValuableIncome = 1.5f;   // ценный — с добытчика на точке
+        public const float MineDepositIncome = 1f;           // ценный — с шахты на месторождении базы
+        public const float MineCaptureIncome = 1.5f;         // ценный — с шахты на своей точке захвата
 
         public const int BuilderCost = 50;
         public const float BuilderHireTime = 8f;
