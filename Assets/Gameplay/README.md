@@ -5,7 +5,8 @@
 ## Как запустить
 
 1. Создать пустую сцену.
-2. Меню **Tools → Voxel Arena → Create Match Setup**: арена, камера боя, менеджер боя и интерфейс.
+2. Меню **Tools → Voxel Arena → Create Match Setup**: арена, камера боя, менеджер боя, интерфейс
+   (экземпляр префаба `Prefabs/HUD.prefab`) и EventSystem.
 3. Play.
 
 ## Что есть (шаги 1–3 среза)
@@ -33,4 +34,7 @@
 - `BuildGrid.cs` — занятость клеток и проверка места.
 - `MatchManager.cs` — запуск боя, заказ построек, найм.
 - `RtsCamera.cs` — камера боя (своя база внизу), касания.
-- `GameHud.cs` — интерфейс (uGUI, собирается кодом).
+- `GameHud.cs` — логика интерфейса; вёрстка — в префабе `Prefabs/HUD.prefab` (обычный Canvas, uGUI).
+- `Editor/HudPrefabBuilder.cs` — собирает префаб HUD при первом создании сцены боя;
+  **Tools → Voxel Arena → Rebuild HUD Prefab** — пересобрать заново (ручные правки пропадут).
+  Кнопки меню зданий копируются во время игры из образца `Build Button Template`.

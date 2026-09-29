@@ -1,40 +1,50 @@
 using System.Collections.Generic;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace Generals
 {
     /// <summary>
-    /// Интерфейс боя для телефона, собирается кодом (uGUI):
-    /// ресурсы сверху, кнопка «Строить» и меню зданий, установка «тап по земле → Поставить / Отмена»,
-    /// панель выбранного здания (в главном здании — найм строителя).
+    /// Интерфейс боя. Вёрстка — в префабе Assets/Gameplay/Prefabs/HUD.prefab
+    /// (собирается меню Tools/Voxel Arena/Rebuild HUD Prefab, дальше правится руками).
+    /// Здесь только логика: ресурсы, меню построек, установка здания, панель выбранного здания.
     /// </summary>
     public class GameHud : MonoBehaviour
     {
         [SerializeField] RtsCamera rtsCamera;
 
-        static readonly Color PanelColor = new(0.08f, 0.09f, 0.11f, 0.82f);
-        static readonly Color ButtonColor = new(0.22f, 0.25f, 0.30f, 1f);
-        static readonly Color AccentColor = new(0.24f, 0.52f, 0.28f, 1f);
+        [Header("Верх")]
+        [SerializeField] Text resourcesText;
+        [SerializeField] Text toastText;
 
-        Font font;
-        Text resourcesText;
-        Text toastText;
-        float toastTimer;
+        [Header("Строительство")]
+        [SerializeField] Button buildToggle;
+        [SerializeField] GameObject buildMenu;
+        [SerializeField] Transform buildMenuContent;
+        [Tooltip("Образец кнопки здания: копируется по одной на каждое здание из каталога")]
+        [SerializeField] Button buildButtonTemplate;
 
-        GameObject buildMenu;
+        [Header("Установка")]
+        [SerializeField] GameObject placementBar;
+        [SerializeField] Text placementHint;
+        [SerializeField] Button confirmButton;
+        [SerializeField] Button cancelButton;
+
+        [Header("Выбранное здание")]
+        [SerializeField] GameObject selectionPanel;
+        [SerializeField] Text selectionTitle;
+        [SerializeField] Text selectionInfo;
+        [SerializeField] Button hireButton;
+
+        public RtsCamera RtsCamera
+        {
+            get => rtsCamera;
+            set => rtsCamera = value;
+        }
+
         readonly List<(StructureDef def, Button button)> buildButtons = new();
-
-        GameObject placementBar;
-        Text placementHint;
-        Button confirmButton;
-
-        GameObject selectionPanel;
-        Text selectionTitle;
-        Text selectionInfo;
-        Button hireButton;
+        float toastTimer;
         Structure selected;
 
         // Установка здания
@@ -50,10 +60,36 @@ namespace Generals
 
         void Awake()
         {
-            font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            EnsureEventSystem();
-            BuildCanvas();
             rtsCamera.Tapped += Camera_Tapped;
+
+            buildToggle.onClick.AddListener(() =>
+            {
+                CancelPlacing();
+                buildMenu.SetActive(!buildMenu.activeSelf);
+            });
+            confirmButton.onClick.AddListener(ConfirmPlacing);
+            cancelButton.onClick.AddListener(CancelPlacing);
+            hireButton.onClick.AddListener(HireBuilder);
+            SetButtonText(hireButton, $"Нанять строителя · {StructureCatalog.BuilderCost}");
+
+            buildButtonTemplate.gameObject.SetActive(false);
+            foreach (var def in StructureCatalog.All)
+            {
+                if (!def.buildable)
+                    continue;
+                var captured = def;
+                var button = Instantiate(buildButtonTemplate, buildMenuContent);
+                button.gameObject.SetActive(true);
+                button.name = def.name;
+                SetButtonText(button, $"{def.name} · {Cost(def)}");
+                button.onClick.AddListener(() => StartPlacing(captured));
+                buildButtons.Add((def, button));
+            }
+
+            buildMenu.SetActive(false);
+            placementBar.SetActive(false);
+            selectionPanel.SetActive(false);
+            toastText.enabled = false;
         }
 
         void OnDestroy()
@@ -95,6 +131,11 @@ namespace Generals
                 if (p.Owner == Player.team)
                     count++;
             return count;
+        }
+
+        static void SetButtonText(Button button, string text)
+        {
+            button.GetComponentInChildren<Text>().text = text;
         }
 
         // ---------- Касания ----------
@@ -291,141 +332,5 @@ namespace Generals
 
         static string Cost(StructureDef def) =>
             def.costValuable > 0 ? $"{def.costBase} + {def.costValuable} ценного" : $"{def.costBase}";
-
-        // ---------- Сборка интерфейса ----------
-
-        static void EnsureEventSystem()
-        {
-            if (FindObjectOfType<EventSystem>() != null)
-                return;
-            var go = new GameObject("EventSystem");
-            go.AddComponent<EventSystem>();
-            go.AddComponent<StandaloneInputModule>();
-        }
-
-        void BuildCanvas()
-        {
-            var canvasObject = new GameObject("HUD Canvas");
-            canvasObject.transform.SetParent(transform, false);
-            var canvas = canvasObject.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            var scaler = canvasObject.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920f, 1080f);
-            scaler.matchWidthOrHeight = 0.5f;
-            canvasObject.AddComponent<GraphicRaycaster>();
-            var root = canvasObject.transform;
-
-            // Ресурсы сверху
-            var top = MakePanel(root, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, 70f));
-            resourcesText = MakeLabel(top, "", 34, TextAnchor.MiddleCenter);
-
-            // Сообщения
-            var toast = MakePanel(root, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -90f), new Vector2(1100f, 70f));
-            toast.GetComponent<Image>().color = Color.clear;
-            toastText = MakeLabel(toast, "", 34, TextAnchor.MiddleCenter);
-            toastText.enabled = false;
-
-            // Кнопка «Строить»
-            var buildButton = MakeButton(root, "Строить", new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-30f, 30f), new Vector2(300f, 120f), AccentColor);
-            buildButton.onClick.AddListener(() =>
-            {
-                CancelPlacing();
-                buildMenu.SetActive(!buildMenu.activeSelf);
-            });
-
-            // Меню зданий над кнопкой
-            var menu = MakePanel(root, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-30f, 170f), new Vector2(460f, 10f));
-            buildMenu = menu.gameObject;
-            var layout = menu.gameObject.AddComponent<VerticalLayoutGroup>();
-            layout.padding = new RectOffset(14, 14, 14, 14);
-            layout.spacing = 10f;
-            layout.childControlWidth = true;
-            layout.childControlHeight = true;
-            layout.childForceExpandWidth = true;
-            layout.childForceExpandHeight = false;
-            menu.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-
-            foreach (var def in StructureCatalog.All)
-            {
-                if (!def.buildable)
-                    continue;
-                var captured = def;
-                var button = MakeButton(menu, $"{def.name} · {Cost(def)}", Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(0f, 100f), ButtonColor);
-                button.gameObject.AddComponent<LayoutElement>().preferredHeight = 100f;
-                button.onClick.AddListener(() => StartPlacing(captured));
-                buildButtons.Add((def, button));
-            }
-            buildMenu.SetActive(false);
-
-            // Установка: подсказка и кнопки
-            var bar = MakePanel(root, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 30f), new Vector2(1000f, 210f));
-            placementBar = bar.gameObject;
-            var hint = MakePanel(bar, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, 80f));
-            hint.GetComponent<Image>().color = Color.clear;
-            placementHint = MakeLabel(hint, "", 32, TextAnchor.MiddleCenter);
-            confirmButton = MakeButton(bar, "Поставить", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-235f, 20f), new Vector2(430f, 100f), AccentColor);
-            confirmButton.onClick.AddListener(ConfirmPlacing);
-            var cancelButton = MakeButton(bar, "Отмена", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(235f, 20f), new Vector2(430f, 100f), ButtonColor);
-            cancelButton.onClick.AddListener(CancelPlacing);
-            placementBar.SetActive(false);
-
-            // Панель выбранного здания
-            var panel = MakePanel(root, Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(30f, 30f), new Vector2(640f, 300f));
-            selectionPanel = panel.gameObject;
-            var title = MakePanel(panel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -10f), new Vector2(-20f, 60f));
-            title.GetComponent<Image>().color = Color.clear;
-            selectionTitle = MakeLabel(title, "", 38, TextAnchor.MiddleLeft);
-            var info = MakePanel(panel, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -80f), new Vector2(-20f, 80f));
-            info.GetComponent<Image>().color = Color.clear;
-            selectionInfo = MakeLabel(info, "", 30, TextAnchor.UpperLeft);
-            hireButton = MakeButton(panel, $"Нанять строителя · {StructureCatalog.BuilderCost}", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 20f), new Vector2(600f, 100f), AccentColor);
-            hireButton.onClick.AddListener(HireBuilder);
-            selectionPanel.SetActive(false);
-        }
-
-        RectTransform MakePanel(Transform parent, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 position, Vector2 size)
-        {
-            var go = new GameObject("Panel", typeof(RectTransform), typeof(Image));
-            var rect = go.GetComponent<RectTransform>();
-            rect.SetParent(parent, false);
-            rect.anchorMin = anchorMin;
-            rect.anchorMax = anchorMax;
-            rect.pivot = pivot;
-            rect.anchoredPosition = position;
-            rect.sizeDelta = size;
-            go.GetComponent<Image>().color = PanelColor;
-            return rect;
-        }
-
-        Text MakeLabel(Transform parent, string text, int size, TextAnchor anchor)
-        {
-            var go = new GameObject("Text", typeof(RectTransform), typeof(Text));
-            var rect = go.GetComponent<RectTransform>();
-            rect.SetParent(parent, false);
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.offsetMin = new Vector2(16f, 4f);
-            rect.offsetMax = new Vector2(-16f, -4f);
-            var label = go.GetComponent<Text>();
-            label.font = font;
-            label.fontSize = size;
-            label.alignment = anchor;
-            label.color = Color.white;
-            label.text = text;
-            label.raycastTarget = false;
-            return label;
-        }
-
-        Button MakeButton(Transform parent, string text, Vector2 anchorMin, Vector2 anchorMax, Vector2 position, Vector2 size, Color color)
-        {
-            var pivot = new Vector2(anchorMin.x, anchorMin.y);
-            var rect = MakePanel(parent, anchorMin, anchorMax, pivot, position, size);
-            rect.name = text;
-            rect.GetComponent<Image>().color = color;
-            var button = rect.gameObject.AddComponent<Button>();
-            MakeLabel(rect, text, 34, TextAnchor.MiddleCenter);
-            return button;
-        }
     }
 }

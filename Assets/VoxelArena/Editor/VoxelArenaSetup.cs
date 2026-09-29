@@ -39,10 +39,19 @@ public static class VoxelArenaSetup
         SetReference(match, "navMesh", arena.GetComponent<ArenaNavMesh>());
         Undo.RegisterCreatedObjectUndo(matchObject, "Create Match");
 
-        var hudObject = new GameObject("HUD");
-        var hud = hudObject.AddComponent<Generals.GameHud>();
-        SetReference(hud, "rtsCamera", rtsCamera);
+        // Интерфейс — экземпляр префаба (собирается при первом запуске, дальше правится руками)
+        var hudPrefab = Generals.EditorTools.HudPrefabBuilder.GetOrBuild();
+        var hudObject = (GameObject)PrefabUtility.InstantiatePrefab(hudPrefab);
+        SetReference(hudObject.GetComponent<Generals.GameHud>(), "rtsCamera", rtsCamera);
         Undo.RegisterCreatedObjectUndo(hudObject, "Create HUD");
+
+        if (Object.FindObjectOfType<UnityEngine.EventSystems.EventSystem>() == null)
+        {
+            var eventSystem = new GameObject("EventSystem",
+                typeof(UnityEngine.EventSystems.EventSystem),
+                typeof(UnityEngine.EventSystems.StandaloneInputModule));
+            Undo.RegisterCreatedObjectUndo(eventSystem, "Create EventSystem");
+        }
 
         Finish(arena.gameObject);
     }
