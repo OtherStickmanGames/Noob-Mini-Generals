@@ -37,6 +37,7 @@ public class ArenaTestController : MonoBehaviour
 
     float fps;
     int lastRemoved;
+    string lastClick = "—";
     Rect panelRect;
 
     void Start()
@@ -105,6 +106,8 @@ public class ArenaTestController : MonoBehaviour
         {
             if (!dragging)
                 ExplodeAt(pointer);
+            else
+                lastClick = "перетаскивание камеры, не взрыв";
 
             pressActive = false;
         }
@@ -180,12 +183,28 @@ public class ArenaTestController : MonoBehaviour
 
     void ExplodeAt(Vector3 screenPoint)
     {
-        if (!RaycastArena(screenPoint, out var hit))
+        var ray = cam.ScreenPointToRay(screenPoint);
+        if (!Physics.Raycast(ray, out var hit, 1000f))
+        {
+            lastClick = "луч ни во что не попал";
+            Debug.Log($"[Arena] Клик {screenPoint}: луч ни во что не попал");
             return;
+        }
+
+        if (!hit.collider.transform.IsChildOf(arena.transform))
+        {
+            lastClick = $"попал не в арену: {hit.collider.name}";
+            Debug.Log($"[Arena] Клик {screenPoint}: попал не в арену: {hit.collider.name}", hit.collider);
+            return;
+        }
 
         // Центр чуть внутри поверхности, чтобы воронка была и вглубь
         var center = hit.point - hit.normal * (arena.VoxelSize * 0.5f);
         lastRemoved = arena.Explode(center, explosionRadius);
+
+        var voxel = arena.WorldToVoxel(center);
+        lastClick = $"{hit.collider.name}, воксель {voxel.x:0},{voxel.y:0},{voxel.z:0}";
+        Debug.Log($"[Arena] Клик: {hit.collider.name}, точка {hit.point}, воксель {voxel}, выбито {lastRemoved}");
     }
 
     void Regenerate()
@@ -240,7 +259,7 @@ public class ArenaTestController : MonoBehaviour
 
     void OnGUI()
     {
-        int fontSize = Mathf.Clamp(Mathf.Min(Screen.width, Screen.height) / 40, 11, 40);
+        int fontSize = Mathf.Clamp(Mathf.Min(Screen.width, Screen.height) / 55, 10, 28);
         GUI.skin.label.fontSize = fontSize;
         GUI.skin.button.fontSize = fontSize;
         GUI.skin.label.wordWrap = false;
@@ -248,7 +267,7 @@ public class ArenaTestController : MonoBehaviour
         // Высота панели считается по содержимому, чтобы кнопки не обрезались
         var area = new Rect(10, 10, Screen.width - 20, Screen.height - 20);
         GUILayout.BeginArea(area);
-        GUILayout.BeginVertical(GUI.skin.box, GUILayout.ExpandWidth(false));
+        GUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(fontSize * 22));
 
         var dims = arena.Dims;
         GUILayout.Label($"FPS: {fps:0}");
@@ -259,6 +278,7 @@ public class ArenaTestController : MonoBehaviour
         GUILayout.Label($"  загрузка меша: {arena.LastApplyMs:0.00} мс");
         GUILayout.Label($"  коллайдеры: {arena.LastColliderMs:0.00} мс");
         GUILayout.Label($"NavMesh: {navMesh.LastBuildMs:0.0} мс за {navMesh.LastBuildFrames} кадр., плитка {navMesh.TileSize}");
+        GUILayout.Label($"Клик: {lastClick}");
 
         if (GUILayout.Button("Новая карта"))
             Regenerate();
