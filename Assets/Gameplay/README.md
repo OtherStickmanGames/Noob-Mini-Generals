@@ -34,7 +34,7 @@
 - `BuildGrid.cs` — занятость клеток и проверка места.
 - `MatchManager.cs` — запуск боя, заказ построек, найм.
 - `RtsCamera.cs` — камера боя (своя база внизу), касания.
-- `GameHud.cs` — логика интерфейса; вёрстка — в префабе `Prefabs/HUD.prefab` (обычный Canvas, uGUI).
+- `GameHud.cs` — логика интерфейса; вёрстка — в префабе `Prefabs/HUD.prefab` (обычный Canvas, uGUI, тексты TextMeshPro).
 - `Editor/HudPrefabBuilder.cs` — собирает префаб HUD при первом создании сцены боя;
   **Tools → Voxel Arena → Rebuild HUD Prefab** — пересобрать заново (ручные правки пропадут).
   Кнопки меню зданий копируются во время игры из образца `Build Button Template`.

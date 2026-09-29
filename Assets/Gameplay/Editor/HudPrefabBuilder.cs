@@ -1,4 +1,5 @@
 using System.IO;
+using TMPro;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
@@ -17,7 +18,6 @@ namespace Generals.EditorTools
         static readonly Color ButtonColor = new(0.22f, 0.25f, 0.30f, 1f);
         static readonly Color AccentColor = new(0.24f, 0.52f, 0.28f, 1f);
 
-        static Font font;
 
         [MenuItem("Tools/Voxel Arena/Rebuild HUD Prefab")]
         static void RebuildMenu()
@@ -39,8 +39,6 @@ namespace Generals.EditorTools
 
         static GameObject Build()
         {
-            font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-
             var root = new GameObject("HUD", typeof(RectTransform));
             var canvas = root.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -54,11 +52,11 @@ namespace Generals.EditorTools
 
             // Ресурсы сверху
             var top = MakePanel(t, "Resources", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, 70f), PanelColor);
-            var resourcesText = MakeLabel(top, "Базовый ресурс: 0     Ценный: 0", 34, TextAnchor.MiddleCenter);
+            var resourcesText = MakeLabel(top, "Базовый ресурс: 0     Ценный: 0", 34, TextAlignmentOptions.Center);
 
             // Сообщения
             var toast = MakePanel(t, "Toast", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -90f), new Vector2(1100f, 70f), Color.clear);
-            var toastText = MakeLabel(toast, "Сообщение", 34, TextAnchor.MiddleCenter);
+            var toastText = MakeLabel(toast, "Сообщение", 34, TextAlignmentOptions.Center);
 
             // Кнопка «Строить» и меню зданий над ней
             var buildToggle = MakeButton(t, "Build Button", "Строить", new Vector2(1f, 0f), new Vector2(-30f, 30f), new Vector2(300f, 120f), AccentColor);
@@ -79,16 +77,16 @@ namespace Generals.EditorTools
             // Установка здания
             var bar = MakePanel(t, "Placement Bar", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 30f), new Vector2(1000f, 210f), PanelColor);
             var hint = MakePanel(bar, "Hint", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, 80f), Color.clear);
-            var placementHint = MakeLabel(hint, "Коснитесь земли, чтобы выбрать место", 32, TextAnchor.MiddleCenter);
+            var placementHint = MakeLabel(hint, "Коснитесь земли, чтобы выбрать место", 32, TextAlignmentOptions.Center);
             var confirm = MakeButton(bar, "Confirm", "Поставить", new Vector2(0.5f, 0f), new Vector2(-235f, 20f), new Vector2(430f, 100f), AccentColor);
             var cancel = MakeButton(bar, "Cancel", "Отмена", new Vector2(0.5f, 0f), new Vector2(235f, 20f), new Vector2(430f, 100f), ButtonColor);
 
             // Панель выбранного здания
             var selection = MakePanel(t, "Selection", Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(30f, 30f), new Vector2(640f, 300f), PanelColor);
             var title = MakePanel(selection, "Title", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -10f), new Vector2(-20f, 60f), Color.clear);
-            var selectionTitle = MakeLabel(title, "Здание", 38, TextAnchor.MiddleLeft);
+            var selectionTitle = MakeLabel(title, "Здание", 38, TextAlignmentOptions.MidlineLeft);
             var info = MakePanel(selection, "Info", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -80f), new Vector2(-20f, 80f), Color.clear);
-            var selectionInfo = MakeLabel(info, "Описание", 30, TextAnchor.UpperLeft);
+            var selectionInfo = MakeLabel(info, "Описание", 30, TextAlignmentOptions.TopLeft);
             var hire = MakeButton(selection, "Hire Builder", "Нанять строителя", new Vector2(0.5f, 0f), new Vector2(0f, 20f), new Vector2(600f, 100f), AccentColor);
 
             // Ссылки для GameHud
@@ -132,21 +130,22 @@ namespace Generals.EditorTools
             return rect;
         }
 
-        static Text MakeLabel(Transform parent, string text, int size, TextAnchor anchor)
+        // Шрифт — TMP по умолчанию (LiberationSans SDF), кириллицу дорисовывает его динамический запасной шрифт
+        static TextMeshProUGUI MakeLabel(Transform parent, string text, int size, TextAlignmentOptions alignment)
         {
-            var go = new GameObject("Text", typeof(RectTransform), typeof(Text));
+            var go = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
             var rect = go.GetComponent<RectTransform>();
             rect.SetParent(parent, false);
             rect.anchorMin = Vector2.zero;
             rect.anchorMax = Vector2.one;
             rect.offsetMin = new Vector2(16f, 4f);
             rect.offsetMax = new Vector2(-16f, -4f);
-            var label = go.GetComponent<Text>();
-            label.font = font;
-            label.fontSize = size;
-            label.alignment = anchor;
-            label.color = Color.white;
+            var label = go.GetComponent<TextMeshProUGUI>();
             label.text = text;
+            label.fontSize = size;
+            label.alignment = alignment;
+            label.color = Color.white;
+            label.enableWordWrapping = true;
             label.raycastTarget = false;
             return label;
         }
@@ -156,7 +155,7 @@ namespace Generals.EditorTools
         {
             var rect = MakePanel(parent, name, anchor, anchor, anchor, position, size, color);
             var button = rect.gameObject.AddComponent<Button>();
-            MakeLabel(rect, text, 34, TextAnchor.MiddleCenter);
+            MakeLabel(rect, text, 34, TextAlignmentOptions.Center);
             return button;
         }
     }

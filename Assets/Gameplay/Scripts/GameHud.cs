@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Unity.Mathematics;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -15,8 +16,8 @@ namespace Generals
         [SerializeField] RtsCamera rtsCamera;
 
         [Header("Верх")]
-        [SerializeField] Text resourcesText;
-        [SerializeField] Text toastText;
+        [SerializeField] TMP_Text resourcesText;
+        [SerializeField] TMP_Text toastText;
 
         [Header("Строительство")]
         [SerializeField] Button buildToggle;
@@ -27,14 +28,14 @@ namespace Generals
 
         [Header("Установка")]
         [SerializeField] GameObject placementBar;
-        [SerializeField] Text placementHint;
+        [SerializeField] TMP_Text placementHint;
         [SerializeField] Button confirmButton;
         [SerializeField] Button cancelButton;
 
         [Header("Выбранное здание")]
         [SerializeField] GameObject selectionPanel;
-        [SerializeField] Text selectionTitle;
-        [SerializeField] Text selectionInfo;
+        [SerializeField] TMP_Text selectionTitle;
+        [SerializeField] TMP_Text selectionInfo;
         [SerializeField] Button hireButton;
 
         public RtsCamera RtsCamera
@@ -135,7 +136,7 @@ namespace Generals
 
         static void SetButtonText(Button button, string text)
         {
-            button.GetComponentInChildren<Text>().text = text;
+            button.GetComponentInChildren<TMP_Text>().text = text;
         }
 
         // ---------- Касания ----------
