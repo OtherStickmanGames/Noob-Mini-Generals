@@ -2,8 +2,8 @@ using Unity.Collections;
 using UnityEngine;
 
 /// <summary>
-/// Типы блоков арены и их цвета. Цвет берётся из палитры по индексу:
-/// у каждого блока свой индекс для верхней грани, боковых и нижней.
+/// Типы блоков арены. Блок хранит только смысл (трава, камень, вода),
+/// цвет грани берётся из палитры биома по индексу слота.
 /// </summary>
 public static class VoxelBlocks
 {
@@ -13,39 +13,58 @@ public static class VoxelBlocks
     public const byte Dirt = 3;
     public const byte Grass = 4;
     public const byte Sand = 5;
-    public const int Count = 6;
+    public const byte Water = 6;
+    public const byte Wood = 7;
+    public const byte Leaves = 8;
+    public const byte LeavesAlt = 9;
+    public const byte Snow = 10;
+    public const byte GoldOre = 11;
+    public const byte IronOre = 12;
+    public const int Count = 13;
 
     public const int FaceTop = 0;
     public const int FaceSide = 1;
     public const int FaceBottom = 2;
 
-    // Индексы палитры 16 и дальше оставлены под цвета команд
-    public static readonly Color32[] Palette =
-    {
-        new(0, 0, 0, 255),        // 0  не используется
-        new(52, 52, 58, 255),     // 1  коренная порода
-        new(124, 126, 132, 255),  // 2  камень
-        new(98, 100, 106, 255),   // 3  тёмный камень
-        new(123, 88, 60, 255),    // 4  земля
-        new(104, 168, 62, 255),   // 5  трава сверху
-        new(88, 146, 52, 255),    // 6  трава тёмная
-        new(218, 198, 140, 255),  // 7  песок
-    };
+    // Слоты палитры. 32 и дальше оставлены под цвета команд.
+    public const byte SlotBedrock = 1;
+    public const byte SlotStoneTop = 2;
+    public const byte SlotStoneSide = 3;
+    public const byte SlotDirt = 4;
+    public const byte SlotGrassTop = 5;
+    public const byte SlotSand = 6;
+    public const byte SlotWater = 7;
+    public const byte SlotWoodSide = 8;
+    public const byte SlotWoodTop = 9;
+    public const byte SlotLeaves = 10;
+    public const byte SlotLeavesAlt = 11;
+    public const byte SlotSnow = 12;
+    public const byte SlotGoldOre = 13;
+    public const byte SlotIronOre = 14;
+    public const int SlotCount = 15;
 
     // top, side, bottom
     static readonly byte[,] faces =
     {
-        { 0, 0, 0 },  // Air
-        { 1, 1, 1 },  // Bedrock
-        { 2, 3, 3 },  // Stone
-        { 4, 4, 4 },  // Dirt
-        { 5, 4, 4 },  // Grass
-        { 7, 7, 7 },  // Sand
+        { 0, 0, 0 },                                        // Air
+        { SlotBedrock, SlotBedrock, SlotBedrock },          // Bedrock
+        { SlotStoneTop, SlotStoneSide, SlotStoneSide },     // Stone
+        { SlotDirt, SlotDirt, SlotDirt },                   // Dirt
+        { SlotGrassTop, SlotDirt, SlotDirt },               // Grass
+        { SlotSand, SlotSand, SlotSand },                   // Sand
+        { SlotWater, SlotWater, SlotWater },                // Water
+        { SlotWoodTop, SlotWoodSide, SlotWoodTop },         // Wood
+        { SlotLeaves, SlotLeaves, SlotLeaves },             // Leaves
+        { SlotLeavesAlt, SlotLeavesAlt, SlotLeavesAlt },    // LeavesAlt
+        { SlotSnow, SlotSnow, SlotSnow },                   // Snow
+        { SlotGoldOre, SlotGoldOre, SlotGoldOre },          // GoldOre
+        { SlotIronOre, SlotIronOre, SlotIronOre },          // IronOre
     };
 
-    public static bool IsIndestructible(byte block) => block == Bedrock;
+    /// <summary>Вода и бедрок взрывом не выбиваются.</summary>
+    public static bool IsIndestructible(byte block) => block == Bedrock || block == Water;
 
-    /// <summary>Таблица block * 3 + face -> индекс палитры для джоб.</summary>
+    /// <summary>Таблица block * 3 + face -> слот палитры для джоб.</summary>
     public static NativeArray<byte> CreateFaceTable(Allocator allocator)
     {
         var table = new NativeArray<byte>(Count * 3, allocator);
@@ -60,19 +79,21 @@ public static class VoxelBlocks
 
     public static Texture2D CreatePaletteTexture()
     {
-        var texture = new Texture2D(256, 1, TextureFormat.RGBA32, false)
+        return new Texture2D(256, 1, TextureFormat.RGBA32, false)
         {
             name = "Voxel Palette",
             filterMode = FilterMode.Point,
             wrapMode = TextureWrapMode.Clamp,
         };
+    }
 
+    public static void WritePalette(Texture2D texture, Color32[] palette)
+    {
         var pixels = new Color32[256];
-        for (int i = 0; i < Palette.Length; i++)
-            pixels[i] = Palette[i];
+        for (int i = 0; i < palette.Length; i++)
+            pixels[i] = palette[i];
 
         texture.SetPixels32(pixels);
-        texture.Apply(false, true);
-        return texture;
+        texture.Apply(false, false);
     }
 }

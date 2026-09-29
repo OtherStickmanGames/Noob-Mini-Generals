@@ -5,12 +5,12 @@ using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.Rendering;
 using Debug = UnityEngine.Debug;
 
 /// <summary>
 /// Воксельная арена фиксированного размера. Все воксели лежат в одном массиве,
 /// чанки 16³ нужны только для мешей и коллайдеров. Арена не должна быть повёрнута.
+/// У каждого чанка два меша: суша (с MeshCollider) и вода (только отрисовка).
 /// </summary>
 public class VoxelArena : MonoBehaviour
 {
@@ -26,14 +26,16 @@ public class VoxelArena : MonoBehaviour
     [SerializeField] float voxelSize = 0.5f;
     [SerializeField] ArenaGenSettings generation = ArenaGenSettings.Default;
 
-    /// <summary>Меш чанка изменился. Mesh == null — чанк пустой.</summary>
-    public event Action<int, Mesh, Matrix4x4> ChunkMeshChanged;
+    /// <summary>Меши чанка изменились: суша, вода (null — пусто), матрица чанка.</summary>
+    public event Action<int, Mesh, Mesh, Matrix4x4> ChunkMeshChanged;
     public event Action Generated;
 
     public int3 Dims => dims;
-    public int ChunkTotal => chunkObjects.Length;
+    public int ChunkTotal => chunks.Length;
     public float VoxelSize => voxelSize;
     public NativeArray<byte> Voxels => voxels;
+    public ArenaLayout Layout { get; private set; }
+    public ArenaBiome Biome { get; private set; }
     public Vector3 BaseOne { get; private set; }
     public Vector3 BaseTwo { get; private set; }
 
@@ -52,11 +54,48 @@ public class VoxelArena : MonoBehaviour
         }
     }
 
-    // Замеры последней перестройки
+    // Замеры
+    public double LastGenerateMs { get; private set; }
     public int LastRebuiltChunks { get; private set; }
     public double LastMeshMs { get; private set; }
     public double LastApplyMs { get; private set; }
     public int TotalTriangles { get; private set; }
+
+    class Chunk
+    {
+        public GameObject root;
+        public Mesh land;
+        public Mesh water;
+        public MeshRenderer landRenderer;
+        public MeshRenderer waterRenderer;
+        public MeshCollider collider;
+        public int triangles;
+        public bool dirty;
+    }
+
+    class MeshBuffers
+    {
+        public NativeList<float3> positions;
+        public NativeList<float3> normals;
+        public NativeList<Color32> colors;
+        public NativeList<uint> indices;
+
+        public MeshBuffers()
+        {
+            positions = new NativeList<float3>(1024, Allocator.TempJob);
+            normals = new NativeList<float3>(1024, Allocator.TempJob);
+            colors = new NativeList<Color32>(1024, Allocator.TempJob);
+            indices = new NativeList<uint>(1536, Allocator.TempJob);
+        }
+
+        public void Dispose()
+        {
+            positions.Dispose();
+            normals.Dispose();
+            colors.Dispose();
+            indices.Dispose();
+        }
+    }
 
     int3 dims;
     int3 chunkCounts;
@@ -65,12 +104,7 @@ public class VoxelArena : MonoBehaviour
     NativeArray<byte> faceColors;
     Texture2D paletteTexture;
 
-    GameObject[] chunkObjects;
-    Mesh[] meshes;
-    MeshRenderer[] renderers;
-    MeshCollider[] colliders;
-    int[] triangleCounts;
-    bool[] dirty;
+    Chunk[] chunks;
     readonly List<int> dirtyChunks = new();
 
     readonly Stopwatch timer = new();
@@ -86,6 +120,15 @@ public class VoxelArena : MonoBehaviour
         paletteTexture = VoxelBlocks.CreatePaletteTexture();
         Shader.SetGlobalTexture(PaletteTexId, paletteTexture);
         Shader.SetGlobalFloat(VoxelSizeId, voxelSize);
+
+        // Сцены, сохранённые со старой версией настроек, не знают новых полей
+        if (generation.midHeight <= 0)
+        {
+            int seed = generation.seed;
+            generation = ArenaGenSettings.Default;
+            generation.seed = seed;
+            Debug.Log("[Arena] Настройки генерации из старой версии, взяты значения по умолчанию");
+        }
 
         CreateChunkObjects();
     }
@@ -107,34 +150,59 @@ public class VoxelArena : MonoBehaviour
         voxels.Dispose();
         faceColors.Dispose();
 
-        foreach (var mesh in meshes)
-            Destroy(mesh);
+        foreach (var chunk in chunks)
+        {
+            Destroy(chunk.land);
+            Destroy(chunk.water);
+        }
         Destroy(paletteTexture);
     }
 
     public void Generate()
     {
-        var random = new Unity.Mathematics.Random(math.hash(new int2(generation.seed, 7)) | 1u);
+        timer.Restart();
+
+        Biome = ArenaBiomes.Resolve(generation.biome, generation.seed);
+        Layout = ArenaLayoutGenerator.Generate(generation, Biome, dims.x, dims.z);
+        double layoutMs = timer.Elapsed.TotalMilliseconds;
+
+        var height = new NativeArray<int>(Layout.height, Allocator.TempJob);
+        var waterTop = new NativeArray<int>(Layout.waterTop, Allocator.TempJob);
+        var flags = new NativeArray<byte>(Layout.flags, Allocator.TempJob);
 
         new ArenaGenerateJob
         {
             dims = dims,
-            settings = generation,
-            hillOffset = random.NextFloat2(new float2(-10000f), new float2(10000f)),
-            rampOffset = random.NextFloat2(new float2(-10000f), new float2(10000f)),
+            height = height,
+            waterTop = waterTop,
+            flags = flags,
             voxels = voxels,
         }
         .Schedule(dims.x * dims.z, dims.x)
         .Complete();
 
-        int cx = (dims.x - 1) / 2;
-        BaseOne = ColumnTop(cx, generation.baseMargin);
-        BaseTwo = ColumnTop(dims.x - 1 - cx, dims.z - 1 - generation.baseMargin);
+        height.Dispose();
+        waterTop.Dispose();
+        flags.Dispose();
 
-        for (int c = 0; c < chunkObjects.Length; c++)
+        ArenaDecorator.Decorate(voxels, dims, Layout, Biome, generation.seed);
+        VoxelBlocks.WritePalette(paletteTexture, ArenaBiomes.Palette(Biome));
+
+        BaseOne = ColumnTop(Layout.baseOne.x, Layout.baseOne.y);
+        BaseTwo = ColumnTop(Layout.baseTwo.x, Layout.baseTwo.y);
+
+        for (int c = 0; c < chunks.Length; c++)
             MarkChunkDirty(c);
 
         RebuildDirtyChunks();
+        LastGenerateMs = timer.Elapsed.TotalMilliseconds;
+
+        Debug.Log($"[Arena] Сид {generation.seed}, биом {ArenaBiomes.DisplayName(Biome)}: " +
+                  $"участков {Layout.regionCount}, рамп {Layout.rampCount}, выровнено {Layout.flattenedRegions}, " +
+                  $"базы связаны {Layout.basesConnected}, достижимо {Layout.reachableLand:P0} суши, " +
+                  $"деревьев {Layout.trees.Count}, камней {Layout.rocks.Count}, " +
+                  $"раскладка {layoutMs:0} мс, всего {LastGenerateMs:0} мс");
+
         Generated?.Invoke();
     }
 
@@ -188,12 +256,17 @@ public class VoxelArena : MonoBehaviour
         return transform.position + (Vector3)(voxel * voxelSize);
     }
 
-    /// <summary>Мировая точка на верхней грани самого высокого вокселя столбца.</summary>
+    /// <summary>Мировая точка на верхней грани самого высокого сплошного вокселя столбца.</summary>
     public Vector3 ColumnTop(int x, int z)
     {
         int y = dims.y - 1;
-        while (y > 0 && voxels[VoxelIndex(x, y, z)] == VoxelBlocks.Air)
+        while (y > 0)
+        {
+            byte block = voxels[VoxelIndex(x, y, z)];
+            if (block != VoxelBlocks.Air && block != VoxelBlocks.Water)
+                break;
             y--;
+        }
 
         return VoxelToWorld(new float3(x + 0.5f, y + 1, z + 0.5f));
     }
@@ -215,13 +288,13 @@ public class VoxelArena : MonoBehaviour
         return math.max(ChunkSize, (size + ChunkSize - 1) / ChunkSize * ChunkSize);
     }
 
-    void MarkChunkDirty(int chunk)
+    void MarkChunkDirty(int index)
     {
-        if (dirty[chunk])
+        if (chunks[index].dirty)
             return;
 
-        dirty[chunk] = true;
-        dirtyChunks.Add(chunk);
+        chunks[index].dirty = true;
+        dirtyChunks.Add(index);
     }
 
     // Грани и затенение зависят от соседей, поэтому захватываем на воксель шире
@@ -239,75 +312,68 @@ public class VoxelArena : MonoBehaviour
     void CreateChunkObjects()
     {
         int total = chunkCounts.x * chunkCounts.y * chunkCounts.z;
-
-        chunkObjects = new GameObject[total];
-        meshes = new Mesh[total];
-        renderers = new MeshRenderer[total];
-        colliders = new MeshCollider[total];
-        triangleCounts = new int[total];
-        dirty = new bool[total];
+        chunks = new Chunk[total];
 
         for (int c = 0; c < total; c++)
         {
             int3 coord = ChunkCoord(c);
 
-            var go = new GameObject($"Chunk {coord.x}_{coord.y}_{coord.z}");
-            go.layer = gameObject.layer;
-            go.transform.SetParent(transform, false);
-            go.transform.localPosition = (Vector3)(float3)(coord * ChunkSize) * voxelSize;
-            go.transform.localScale = Vector3.one * voxelSize;
+            var root = new GameObject($"Chunk {coord.x}_{coord.y}_{coord.z}");
+            root.layer = gameObject.layer;
+            root.transform.SetParent(transform, false);
+            root.transform.localPosition = (Vector3)(float3)(coord * ChunkSize) * voxelSize;
+            root.transform.localScale = Vector3.one * voxelSize;
 
-            var mesh = new Mesh { name = go.name };
-            mesh.MarkDynamic();
+            var land = new Mesh { name = root.name };
+            land.MarkDynamic();
+            root.AddComponent<MeshFilter>().sharedMesh = land;
+            var landRenderer = root.AddComponent<MeshRenderer>();
+            landRenderer.sharedMaterial = material;
+            landRenderer.enabled = false;
+            var collider = root.AddComponent<MeshCollider>();
+            collider.sharedMesh = null;
+            collider.enabled = false;
 
-            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var waterObject = new GameObject("Water");
+            waterObject.layer = gameObject.layer;
+            waterObject.transform.SetParent(root.transform, false);
+            var water = new Mesh { name = root.name + " Water" };
+            water.MarkDynamic();
+            waterObject.AddComponent<MeshFilter>().sharedMesh = water;
+            var waterRenderer = waterObject.AddComponent<MeshRenderer>();
+            waterRenderer.sharedMaterial = material;
+            waterRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            waterRenderer.enabled = false;
 
-            var meshRenderer = go.AddComponent<MeshRenderer>();
-            meshRenderer.sharedMaterial = material;
-            meshRenderer.enabled = false;
-
-            var meshCollider = go.AddComponent<MeshCollider>();
-            meshCollider.sharedMesh = null;
-            meshCollider.enabled = false;
-
-            chunkObjects[c] = go;
-            meshes[c] = mesh;
-            renderers[c] = meshRenderer;
-            colliders[c] = meshCollider;
+            chunks[c] = new Chunk
+            {
+                root = root,
+                land = land,
+                water = water,
+                landRenderer = landRenderer,
+                waterRenderer = waterRenderer,
+                collider = collider,
+            };
         }
     }
 
     void RebuildDirtyChunks()
     {
         int count = dirtyChunks.Count;
-        var positionLists = new NativeList<float3>[count];
-        var normalLists = new NativeList<float3>[count];
-        var colorLists = new NativeList<Color32>[count];
-        var indexLists = new NativeList<uint>[count];
-        var handles = new NativeArray<JobHandle>(count, Allocator.Temp);
+        var landBuffers = new MeshBuffers[count];
+        var waterBuffers = new MeshBuffers[count];
+        var handles = new NativeArray<JobHandle>(count * 2, Allocator.Temp);
 
-        // 1. Меши во всех рабочих потоках
+        // 1. Меши во всех рабочих потоках: суша и вода отдельными джобами
         timer.Restart();
         for (int k = 0; k < count; k++)
         {
-            positionLists[k] = new NativeList<float3>(1024, Allocator.TempJob);
-            normalLists[k] = new NativeList<float3>(1024, Allocator.TempJob);
-            colorLists[k] = new NativeList<Color32>(1024, Allocator.TempJob);
-            indexLists[k] = new NativeList<uint>(1536, Allocator.TempJob);
+            int3 origin = ChunkCoord(dirtyChunks[k]) * ChunkSize;
+            landBuffers[k] = new MeshBuffers();
+            waterBuffers[k] = new MeshBuffers();
 
-            handles[k] = new GreedyMeshJob
-            {
-                voxels = voxels,
-                faceColors = faceColors,
-                dims = dims,
-                chunkOrigin = ChunkCoord(dirtyChunks[k]) * ChunkSize,
-                chunkSize = ChunkSize,
-                positions = positionLists[k],
-                normals = normalLists[k],
-                colors = colorLists[k],
-                indices = indexLists[k],
-            }
-            .Schedule();
+            handles[k * 2] = ScheduleMesh(origin, false, landBuffers[k]);
+            handles[k * 2 + 1] = ScheduleMesh(origin, true, waterBuffers[k]);
         }
         JobHandle.CompleteAll(handles);
         handles.Dispose();
@@ -317,62 +383,80 @@ public class VoxelArena : MonoBehaviour
         timer.Restart();
         for (int k = 0; k < count; k++)
         {
-            ApplyMesh(dirtyChunks[k], positionLists[k], normalLists[k], colorLists[k], indexLists[k]);
+            var chunk = chunks[dirtyChunks[k]];
 
-            positionLists[k].Dispose();
-            normalLists[k].Dispose();
-            colorLists[k].Dispose();
-            indexLists[k].Dispose();
+            // Переназначение заставляет коллайдер взять новые данные
+            chunk.collider.sharedMesh = null;
+
+            bool hasLand = ApplyMesh(chunk.land, landBuffers[k]);
+            chunk.landRenderer.enabled = hasLand;
+            chunk.collider.enabled = hasLand;
+            if (hasLand)
+                chunk.collider.sharedMesh = chunk.land;
+
+            chunk.waterRenderer.enabled = ApplyMesh(chunk.water, waterBuffers[k]);
+            chunk.triangles = (landBuffers[k].indices.Length + waterBuffers[k].indices.Length) / 3;
+
+            landBuffers[k].Dispose();
+            waterBuffers[k].Dispose();
         }
         LastApplyMs = timer.Elapsed.TotalMilliseconds;
 
         int total = 0;
-        foreach (int triangles in triangleCounts)
-            total += triangles;
+        foreach (var chunk in chunks)
+            total += chunk.triangles;
         TotalTriangles = total;
         LastRebuiltChunks = count;
 
-        for (int k = 0; k < count; k++)
+        foreach (int index in dirtyChunks)
         {
-            int chunk = dirtyChunks[k];
-            dirty[chunk] = false;
+            var chunk = chunks[index];
+            chunk.dirty = false;
 
-            var mesh = triangleCounts[chunk] > 0 ? meshes[chunk] : null;
-            ChunkMeshChanged?.Invoke(chunk, mesh, chunkObjects[chunk].transform.localToWorldMatrix);
+            ChunkMeshChanged?.Invoke(
+                index,
+                chunk.landRenderer.enabled ? chunk.land : null,
+                chunk.waterRenderer.enabled ? chunk.water : null,
+                chunk.root.transform.localToWorldMatrix);
         }
 
         dirtyChunks.Clear();
     }
 
-    // Меш собирается обычными SetVertices/SetNormals/SetColors/SetIndices, как в Voxer:
-    // один и тот же меш идёт и в отрисовку, и в MeshCollider
-    void ApplyMesh(int chunk, NativeList<float3> positions, NativeList<float3> normals,
-                   NativeList<Color32> colors, NativeList<uint> indices)
+    JobHandle ScheduleMesh(int3 origin, bool water, MeshBuffers buffers)
     {
-        var mesh = meshes[chunk];
-        var collider = colliders[chunk];
+        return new GreedyMeshJob
+        {
+            voxels = voxels,
+            faceColors = faceColors,
+            dims = dims,
+            chunkOrigin = origin,
+            chunkSize = ChunkSize,
+            water = water,
+            positions = buffers.positions,
+            normals = buffers.normals,
+            colors = buffers.colors,
+            indices = buffers.indices,
+        }
+        .Schedule();
+    }
 
-        // Переназначение заставляет коллайдер взять новые данные
-        collider.sharedMesh = null;
+    // Меш собирается обычными SetVertices/SetNormals/SetColors/SetIndices, как в Voxer
+    static bool ApplyMesh(Mesh mesh, MeshBuffers buffers)
+    {
         mesh.Clear();
 
-        triangleCounts[chunk] = indices.Length / 3;
-        bool hasMesh = indices.Length > 0;
-        renderers[chunk].enabled = hasMesh;
-        collider.enabled = hasMesh;
+        if (buffers.indices.Length == 0)
+            return false;
 
-        if (!hasMesh)
-            return;
-
-        mesh.indexFormat = IndexFormat.UInt32;
-        mesh.SetVertices(positions.AsArray());
-        mesh.SetNormals(normals.AsArray());
-        mesh.SetColors(colors.AsArray());
-        mesh.SetIndices(indices.AsArray(), MeshTopology.Triangles, 0);
+        mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        mesh.SetVertices(buffers.positions.AsArray());
+        mesh.SetNormals(buffers.normals.AsArray());
+        mesh.SetColors(buffers.colors.AsArray());
+        mesh.SetIndices(buffers.indices.AsArray(), MeshTopology.Triangles, 0);
 
         // Границы задаём явно: по ним Unity решает, виден ли чанк камере
         mesh.bounds = new Bounds(Vector3.one * (ChunkSize * 0.5f), Vector3.one * ChunkSize);
-
-        collider.sharedMesh = mesh;
+        return true;
     }
 }

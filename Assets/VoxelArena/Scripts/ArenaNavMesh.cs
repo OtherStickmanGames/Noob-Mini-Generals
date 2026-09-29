@@ -8,6 +8,8 @@ using UnityEngine.AI;
 /// готовым списком: при изменении чанка заменяется только его элемент, а
 /// UpdateNavMeshDataAsync пересобирает только плитки, куда попала изменённая геометрия.
 /// Сбора геометрии со сцены (CollectSources) нет вообще.
+/// У каждого чанка два источника: суша (ходить можно) и вода (Not Walkable) —
+/// непроходимая поверхность воды закрывает и дно под ней.
 /// </summary>
 [RequireComponent(typeof(VoxelArena))]
 public class ArenaNavMesh : MonoBehaviour
@@ -23,10 +25,12 @@ public class ArenaNavMesh : MonoBehaviour
     NavMeshDataInstance instance;
     NavMeshBuildSettings settings;
 
-    // Постоянный список: индекс источника <-> чанк
+    const int NotWalkableArea = 1;
+
+    // Постоянный список: индекс источника <-> слот (чанк * 2 + 0 суша / 1 вода)
     readonly List<NavMeshBuildSource> sources = new();
-    readonly List<int> sourceChunks = new();
-    int[] sourceIndexByChunk;
+    readonly List<int> sourceSlots = new();
+    int[] sourceIndexBySlot;
 
     // Копия, которую получает сборка, чтобы правки во время сборки её не трогали
     readonly List<NavMeshBuildSource> buildSources = new();
@@ -53,7 +57,7 @@ public class ArenaNavMesh : MonoBehaviour
     {
         arena.ChunkMeshChanged -= Chunk_MeshChanged;
 
-        if (sourceIndexByChunk != null)
+        if (sourceIndexBySlot != null)
             instance.Remove();
     }
 
@@ -74,61 +78,66 @@ public class ArenaNavMesh : MonoBehaviour
         data = new NavMeshData(agentTypeID);
         instance = NavMesh.AddNavMeshData(data);
 
-        sourceIndexByChunk = new int[arena.ChunkTotal];
-        for (int i = 0; i < sourceIndexByChunk.Length; i++)
-            sourceIndexByChunk[i] = -1;
+        sourceIndexBySlot = new int[arena.ChunkTotal * 2];
+        for (int i = 0; i < sourceIndexBySlot.Length; i++)
+            sourceIndexBySlot[i] = -1;
     }
 
-    void Chunk_MeshChanged(int chunk, Mesh mesh, Matrix4x4 localToWorld)
+    void Chunk_MeshChanged(int chunk, Mesh land, Mesh water, Matrix4x4 localToWorld)
     {
-        if (sourceIndexByChunk == null)
+        if (sourceIndexBySlot == null)
             Init();
 
-        if (mesh == null)
-            RemoveSource(chunk);
-        else
-            SetSource(chunk, mesh, localToWorld);
-
+        UpdateSource(chunk * 2, land, localToWorld, 0);
+        UpdateSource(chunk * 2 + 1, water, localToWorld, NotWalkableArea);
         dirty = true;
     }
 
-    void SetSource(int chunk, Mesh mesh, Matrix4x4 localToWorld)
+    void UpdateSource(int slot, Mesh mesh, Matrix4x4 localToWorld, int area)
+    {
+        if (mesh == null)
+            RemoveSource(slot);
+        else
+            SetSource(slot, mesh, localToWorld, area);
+    }
+
+    void SetSource(int slot, Mesh mesh, Matrix4x4 localToWorld, int area)
     {
         var source = new NavMeshBuildSource
         {
             shape = NavMeshBuildSourceShape.Mesh,
             sourceObject = mesh,
             transform = localToWorld,
-            area = 0,
+            area = area,
         };
 
-        int index = sourceIndexByChunk[chunk];
+        int index = sourceIndexBySlot[slot];
         if (index >= 0)
         {
             sources[index] = source;
             return;
         }
 
-        sourceIndexByChunk[chunk] = sources.Count;
+        sourceIndexBySlot[slot] = sources.Count;
         sources.Add(source);
-        sourceChunks.Add(chunk);
+        sourceSlots.Add(slot);
     }
 
     // Удаление обменом с последним
-    void RemoveSource(int chunk)
+    void RemoveSource(int slot)
     {
-        int index = sourceIndexByChunk[chunk];
+        int index = sourceIndexBySlot[slot];
         if (index < 0)
             return;
 
         int last = sources.Count - 1;
         sources[index] = sources[last];
-        sourceChunks[index] = sourceChunks[last];
-        sourceIndexByChunk[sourceChunks[index]] = index;
+        sourceSlots[index] = sourceSlots[last];
+        sourceIndexBySlot[sourceSlots[index]] = index;
 
         sources.RemoveAt(last);
-        sourceChunks.RemoveAt(last);
-        sourceIndexByChunk[chunk] = -1;
+        sourceSlots.RemoveAt(last);
+        sourceIndexBySlot[slot] = -1;
     }
 
     void Update()

@@ -260,6 +260,7 @@ public class ArenaTestController : MonoBehaviour
         var dims = arena.Dims;
         GUILayout.Label($"FPS: {fps:0}");
         GUILayout.Label($"Арена {dims.x}x{dims.y}x{dims.z}, воксель {arena.VoxelSize}");
+        GUILayout.Label($"Сид {arena.Seed}, биом: {ArenaBiomes.DisplayName(arena.Biome)}, генерация {arena.LastGenerateMs:0} мс");
         GUILayout.Label($"Треугольников: {arena.TotalTriangles}");
         GUILayout.Label($"Перестроено чанков: {arena.LastRebuiltChunks}, выбито: {lastRemoved}");
         GUILayout.Label($"  меш (джобы): {arena.LastMeshMs:0.00} мс");

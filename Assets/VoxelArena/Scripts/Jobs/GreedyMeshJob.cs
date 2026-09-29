@@ -17,6 +17,8 @@ public struct GreedyMeshJob : IJob
     public int3 dims;
     public int3 chunkOrigin;
     public int chunkSize;
+    // false — меш суши (всё, кроме воды), true — меш воды
+    public bool water;
 
     public NativeList<float3> positions;
     public NativeList<float3> normals;
@@ -62,16 +64,24 @@ public struct GreedyMeshJob : IJob
                 int key = 0;
 
                 byte block = GetBlock(p);
-                if (block != VoxelBlocks.Air)
+                bool isWater = block == VoxelBlocks.Water;
+                if (block != VoxelBlocks.Air && isWater == water)
                 {
+                    // Суша видна сквозь воду, вода — только на границе с воздухом
                     int3 q = p + ed * dir;
-                    if (GetBlock(q) == VoxelBlocks.Air)
+                    byte next = GetBlock(q);
+                    bool visible = next == VoxelBlocks.Air || (!water && next == VoxelBlocks.Water);
+                    if (visible)
                     {
                         int color = faceColors[block * 3 + face];
-                        int ao0 = Ao(q, eu, ev, -1, -1);
-                        int ao1 = Ao(q, eu, ev, 1, -1);
-                        int ao2 = Ao(q, eu, ev, 1, 1);
-                        int ao3 = Ao(q, eu, ev, -1, 1);
+                        int ao0 = 3, ao1 = 3, ao2 = 3, ao3 = 3;
+                        if (!water)
+                        {
+                            ao0 = Ao(q, eu, ev, -1, -1);
+                            ao1 = Ao(q, eu, ev, 1, -1);
+                            ao2 = Ao(q, eu, ev, 1, 1);
+                            ao3 = Ao(q, eu, ev, -1, 1);
+                        }
                         key = 1 | (color << 1) | (ao0 << 9) | (ao1 << 11) | (ao2 << 13) | (ao3 << 15);
                     }
                 }
@@ -172,18 +182,20 @@ public struct GreedyMeshJob : IJob
         colors.Add(new Color32(color, (byte)(ao * 85), 0, 255));
     }
 
-    // Затенение угла: 3 — открыт, 0 — зажат с двух сторон
+    // Затенение угла: 3 — открыт, 0 — зажат с двух сторон. Вода не затеняет.
     int Ao(int3 q, int3 eu, int3 ev, int su, int sv)
     {
-        int side1 = GetBlock(q + eu * su) != VoxelBlocks.Air ? 1 : 0;
-        int side2 = GetBlock(q + ev * sv) != VoxelBlocks.Air ? 1 : 0;
-        int corner = GetBlock(q + eu * su + ev * sv) != VoxelBlocks.Air ? 1 : 0;
+        int side1 = IsOpaque(GetBlock(q + eu * su)) ? 1 : 0;
+        int side2 = IsOpaque(GetBlock(q + ev * sv)) ? 1 : 0;
+        int corner = IsOpaque(GetBlock(q + eu * su + ev * sv)) ? 1 : 0;
 
         if (side1 == 1 && side2 == 1)
             return 0;
 
         return 3 - (side1 + side2 + corner);
     }
+
+    static bool IsOpaque(byte block) => block != VoxelBlocks.Air && block != VoxelBlocks.Water;
 
     // Ниже арены — сплошная порода (нижние грани не строятся),
     // за краями и выше — воздух (края карты видны как срез)

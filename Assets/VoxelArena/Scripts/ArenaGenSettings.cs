@@ -1,54 +1,65 @@
 using System;
+using UnityEngine;
 
 /// <summary>
-/// Настройки генерации арены. Все размеры и высоты — в вокселях.
+/// Настройки генерации арены. Размеры и высоты — в вокселях (клетках).
 /// </summary>
 [Serializable]
 public struct ArenaGenSettings
 {
     public int seed;
+    public ArenaBiomeChoice biome;
 
-    // Рельеф
-    public int groundLevel;
-    public int hillHeight;
-    public int terraceCount;
-    public float noiseScale;
-    public int octaves;
+    [Header("Уровни высоты")]
+    public int lowHeight;
+    public int midHeight;
+    public int highHeight;
+    [Range(0f, 1f)] public float lowShare;
+    [Range(0f, 1f)] public float highShare;
+    public float levelNoiseScale;
+    [Tooltip("Участки меньше этой площади вливаются в соседние")]
+    public int minRegionCells;
 
-    // Пологие участки (рампы) между уровнями
-    public float rampScale;
-    public float rampThreshold;
-
-    // Дорога между базами
-    public float roadWidth;
-    public float roadAmplitude;
-    public float roadWaves;
-
-    // Базы
+    [Header("Базы и ресурсы")]
     public int baseMargin;
-    public float baseRadius;
-    public float baseFalloff;
-    public int baseHeight;
+    public int baseRadius;
 
-    public int sandLevel;
+    [Header("Рампы")]
+    public int rampWidth;
+    [Range(0f, 1f)] public float extraRampChance;
+
+    [Header("Вода")]
+    public float waterNoiseScale;
+    public float waterThreshold;
+    public int minLakeCells;
+
+    [Header("Лес и камни")]
+    public float forestNoiseScale;
+    public float forestThreshold;
+    [Range(0f, 1f)] public float forestDensity;
+    [Range(0f, 0.1f)] public float rockChance;
 
     public static ArenaGenSettings Default => new()
     {
         seed = 1,
-        groundLevel = 6,
-        hillHeight = 16,
-        terraceCount = 4,
-        noiseScale = 0.02f,
-        octaves = 3,
-        rampScale = 0.04f,
-        rampThreshold = 0.3f,
-        roadWidth = 3f,
-        roadAmplitude = 20f,
-        roadWaves = 1f,
+        biome = ArenaBiomeChoice.BySeed,
+        lowHeight = 6,
+        midHeight = 10,
+        highHeight = 15,
+        lowShare = 0.33f,
+        highShare = 0.24f,
+        levelNoiseScale = 0.022f,
+        minRegionCells = 90,
         baseMargin = 16,
-        baseRadius = 12f,
-        baseFalloff = 10f,
-        baseHeight = 10,
-        sandLevel = 6,
+        baseRadius = 11,
+        rampWidth = 5,
+        extraRampChance = 0.35f,
+        waterNoiseScale = 0.035f,
+        waterThreshold = 0.12f,
+        minLakeCells = 25,
+        forestNoiseScale = 0.05f,
+        forestThreshold = 0.18f,
+        forestDensity = 0.55f,
+        rockChance = 0.012f,
     };
 }
