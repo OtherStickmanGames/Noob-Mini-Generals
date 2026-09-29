@@ -212,25 +212,37 @@ public class VoxelArena : MonoBehaviour
     // Проверка: сколько коллайдеров включено и попадает ли луч сверху в центр арены
     void LogColliderCheck()
     {
+        Physics.SyncTransforms();
+
         int enabledColliders = 0;
-        Bounds? sample = null;
+        int first = -1;
         for (int c = 0; c < colliders.Length; c++)
         {
             if (!colliders[c].enabled)
                 continue;
 
             enabledColliders++;
-            sample ??= colliders[c].bounds;
+            if (first < 0)
+                first = c;
         }
 
-        Physics.SyncTransforms();
+        if (first >= 0)
+        {
+            var mesh = meshes[first];
+            var subMesh = mesh.GetSubMesh(0);
+            Debug.Log($"[Arena] Первый чанк {chunkObjects[first].name}: вершин {mesh.vertexCount}, " +
+                      $"подмеш: индексов {subMesh.indexCount}, вершин {subMesh.vertexCount}, " +
+                      $"readable {mesh.isReadable}, mesh.bounds {mesh.bounds}, " +
+                      $"collider.sharedMesh {(colliders[first].sharedMesh != null ? colliders[first].sharedMesh.name : "null")}, " +
+                      $"collider.bounds {colliders[first].bounds}");
+        }
 
         var bounds = WorldBounds;
         var origin = new Vector3(bounds.center.x, bounds.max.y + 10f, bounds.center.z);
         bool hit = Physics.Raycast(origin, Vector3.down, out var rayHit, bounds.size.y + 20f);
 
         Debug.Log($"[Arena] Коллайдеров включено: {enabledColliders} из {colliders.Length}, " +
-                  $"bounds первого: {sample}, bake в джобах: {bakeCollidersInJobs}, " +
+                  $"bake в джобах: {bakeCollidersInJobs}, " +
                   $"луч сверху в центр: {(hit ? rayHit.collider.name + " " + rayHit.point : "мимо")}");
     }
 
@@ -413,25 +425,14 @@ public class VoxelArena : MonoBehaviour
         if (vertexCount == 0)
             return;
 
-        const MeshUpdateFlags flags = MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices;
-
+        // Флаги по умолчанию: Unity сама считает границы и диапазон вершин подмеша
         mesh.SetVertexBufferParams(vertexCount, VertexLayout);
-        mesh.SetVertexBufferData(vertices.AsArray(), 0, 0, vertexCount, 0, flags);
+        mesh.SetVertexBufferData(vertices.AsArray(), 0, 0, vertexCount);
 
         mesh.SetIndexBufferParams(indexCount, IndexFormat.UInt32);
-        mesh.SetIndexBufferData(indices.AsArray(), 0, 0, indexCount, flags);
+        mesh.SetIndexBufferData(indices.AsArray(), 0, 0, indexCount);
 
-        var bounds = new Bounds(Vector3.one * (ChunkSize * 0.5f), Vector3.one * ChunkSize);
-
-        // С DontRecalculateBounds Unity не заполняет диапазон вершин подмеша сам.
-        // Отрисовке он не нужен, а MeshCollider без него видит 0 вершин и остаётся пустым.
         mesh.subMeshCount = 1;
-        mesh.SetSubMesh(0, new SubMeshDescriptor(0, indexCount)
-        {
-            firstVertex = 0,
-            vertexCount = vertexCount,
-            bounds = bounds,
-        }, flags);
-        mesh.bounds = bounds;
+        mesh.SetSubMesh(0, new SubMeshDescriptor(0, indexCount));
     }
 }
