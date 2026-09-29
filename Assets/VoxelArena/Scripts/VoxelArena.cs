@@ -31,6 +31,8 @@ public class VoxelArena : MonoBehaviour
     [SerializeField] int sizeZ = 128;
     [SerializeField] float voxelSize = 0.5f;
     [SerializeField] ArenaGenSettings generation = ArenaGenSettings.Default;
+    [Tooltip("Готовить данные коллайдеров в рабочих потоках (Physics.BakeMesh)")]
+    [SerializeField] bool bakeCollidersInJobs = false;
 
     /// <summary>Меш чанка изменился. Mesh == null — чанк пустой.</summary>
     public event Action<int, Mesh, Matrix4x4> ChunkMeshChanged;
@@ -142,6 +144,7 @@ public class VoxelArena : MonoBehaviour
             MarkChunkDirty(c);
 
         RebuildDirtyChunks();
+        LogColliderCheck();
         Generated?.Invoke();
     }
 
@@ -203,6 +206,29 @@ public class VoxelArena : MonoBehaviour
             y--;
 
         return VoxelToWorld(new float3(x + 0.5f, y + 1, z + 0.5f));
+    }
+
+    // Проверка: сколько коллайдеров включено и попадает ли луч сверху в центр арены
+    void LogColliderCheck()
+    {
+        int enabledColliders = 0;
+        Bounds? sample = null;
+        for (int c = 0; c < colliders.Length; c++)
+        {
+            if (!colliders[c].enabled)
+                continue;
+
+            enabledColliders++;
+            sample ??= colliders[c].bounds;
+        }
+
+        var bounds = WorldBounds;
+        var origin = new Vector3(bounds.center.x, bounds.max.y + 10f, bounds.center.z);
+        bool hit = Physics.Raycast(origin, Vector3.down, out var rayHit, bounds.size.y + 20f);
+
+        Debug.Log($"[Arena] Коллайдеров включено: {enabledColliders} из {colliders.Length}, " +
+                  $"bounds первого: {sample}, bake в джобах: {bakeCollidersInJobs}, " +
+                  $"луч сверху в центр: {(hit ? rayHit.collider.name + " " + rayHit.point : "мимо")}");
     }
 
     int VoxelIndex(int x, int y, int z) => (y * dims.z + z) * dims.x + x;
@@ -331,9 +357,12 @@ public class VoxelArena : MonoBehaviour
 
         // 3. Коллайдеры
         timer.Restart();
-        new BakeCollidersJob { meshIds = bakeIds.AsArray() }
-            .Schedule(bakeIds.Length, 1)
-            .Complete();
+        if (bakeCollidersInJobs)
+        {
+            new BakeCollidersJob { meshIds = bakeIds.AsArray() }
+                .Schedule(bakeIds.Length, 1)
+                .Complete();
+        }
         bakeIds.Dispose();
 
         for (int k = 0; k < count; k++)
