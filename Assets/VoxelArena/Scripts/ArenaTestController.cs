@@ -263,8 +263,7 @@ public class ArenaTestController : MonoBehaviour
         GUILayout.Label($"Треугольников: {arena.TotalTriangles}");
         GUILayout.Label($"Перестроено чанков: {arena.LastRebuiltChunks}, выбито: {lastRemoved}");
         GUILayout.Label($"  меш (джобы): {arena.LastMeshMs:0.00} мс");
-        GUILayout.Label($"  загрузка меша: {arena.LastApplyMs:0.00} мс");
-        GUILayout.Label($"  коллайдеры: {arena.LastColliderMs:0.00} мс");
+        GUILayout.Label($"  меш + коллайдер: {arena.LastApplyMs:0.00} мс");
         GUILayout.Label($"NavMesh: {navMesh.LastBuildMs:0.0} мс за {navMesh.LastBuildFrames} кадр., плитка {navMesh.TileSize}");
         GUILayout.Label($"Клик: {lastClick}");
 

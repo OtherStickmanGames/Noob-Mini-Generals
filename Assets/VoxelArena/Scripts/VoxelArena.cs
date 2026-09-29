@@ -19,13 +19,6 @@ public class VoxelArena : MonoBehaviour
     static readonly int PaletteTexId = Shader.PropertyToID("_VoxelPaletteTex");
     static readonly int VoxelSizeId = Shader.PropertyToID("_VoxelSize");
 
-    static readonly VertexAttributeDescriptor[] VertexLayout =
-    {
-        new(VertexAttribute.Position, VertexAttributeFormat.Float32, 3),
-        new(VertexAttribute.Normal, VertexAttributeFormat.Float32, 3),
-        new(VertexAttribute.Color, VertexAttributeFormat.UNorm8, 4),
-    };
-
     [SerializeField] Material material;
     [SerializeField] int sizeX = 128;
     [SerializeField] int sizeY = 32;
@@ -63,7 +56,6 @@ public class VoxelArena : MonoBehaviour
     public int LastRebuiltChunks { get; private set; }
     public double LastMeshMs { get; private set; }
     public double LastApplyMs { get; private set; }
-    public double LastColliderMs { get; private set; }
     public int TotalTriangles { get; private set; }
 
     int3 dims;
@@ -77,7 +69,6 @@ public class VoxelArena : MonoBehaviour
     Mesh[] meshes;
     MeshRenderer[] renderers;
     MeshCollider[] colliders;
-    Mesh[] colliderMeshes;
     int[] triangleCounts;
     bool[] dirty;
     readonly List<int> dirtyChunks = new();
@@ -117,8 +108,6 @@ public class VoxelArena : MonoBehaviour
         faceColors.Dispose();
 
         foreach (var mesh in meshes)
-            Destroy(mesh);
-        foreach (var mesh in colliderMeshes)
             Destroy(mesh);
         Destroy(paletteTexture);
     }
@@ -255,7 +244,6 @@ public class VoxelArena : MonoBehaviour
         meshes = new Mesh[total];
         renderers = new MeshRenderer[total];
         colliders = new MeshCollider[total];
-        colliderMeshes = new Mesh[total];
         triangleCounts = new int[total];
         dirty = new bool[total];
 
@@ -278,11 +266,6 @@ public class VoxelArena : MonoBehaviour
             meshRenderer.sharedMaterial = material;
             meshRenderer.enabled = false;
 
-            // Коллайдеру — свой меш в обычном формате (только позиции),
-            // меш отрисовки с упакованными вершинами коллайдер не принимает
-            var colliderMesh = new Mesh { name = go.name + " Collider", indexFormat = IndexFormat.UInt32 };
-            colliderMesh.MarkDynamic();
-
             var meshCollider = go.AddComponent<MeshCollider>();
             meshCollider.sharedMesh = null;
             meshCollider.enabled = false;
@@ -291,25 +274,26 @@ public class VoxelArena : MonoBehaviour
             meshes[c] = mesh;
             renderers[c] = meshRenderer;
             colliders[c] = meshCollider;
-            colliderMeshes[c] = colliderMesh;
         }
     }
 
     void RebuildDirtyChunks()
     {
         int count = dirtyChunks.Count;
-        var vertexLists = new NativeList<VoxelVertex>[count];
-        var indexLists = new NativeList<uint>[count];
         var positionLists = new NativeList<float3>[count];
+        var normalLists = new NativeList<float3>[count];
+        var colorLists = new NativeList<Color32>[count];
+        var indexLists = new NativeList<uint>[count];
         var handles = new NativeArray<JobHandle>(count, Allocator.Temp);
 
         // 1. Меши во всех рабочих потоках
         timer.Restart();
         for (int k = 0; k < count; k++)
         {
-            vertexLists[k] = new NativeList<VoxelVertex>(1024, Allocator.TempJob);
-            indexLists[k] = new NativeList<uint>(1536, Allocator.TempJob);
             positionLists[k] = new NativeList<float3>(1024, Allocator.TempJob);
+            normalLists[k] = new NativeList<float3>(1024, Allocator.TempJob);
+            colorLists[k] = new NativeList<Color32>(1024, Allocator.TempJob);
+            indexLists[k] = new NativeList<uint>(1536, Allocator.TempJob);
 
             handles[k] = new GreedyMeshJob
             {
@@ -318,9 +302,10 @@ public class VoxelArena : MonoBehaviour
                 dims = dims,
                 chunkOrigin = ChunkCoord(dirtyChunks[k]) * ChunkSize,
                 chunkSize = ChunkSize,
-                vertices = vertexLists[k],
-                indices = indexLists[k],
                 positions = positionLists[k],
+                normals = normalLists[k],
+                colors = colorLists[k],
+                indices = indexLists[k],
             }
             .Schedule();
         }
@@ -328,26 +313,18 @@ public class VoxelArena : MonoBehaviour
         handles.Dispose();
         LastMeshMs = timer.Elapsed.TotalMilliseconds;
 
-        // 2. Загрузка в Mesh
+        // 2. Загрузка в Mesh и MeshCollider (коллайдер готовит данные при назначении меша)
         timer.Restart();
         for (int k = 0; k < count; k++)
         {
-            int chunk = dirtyChunks[k];
-            ApplyMesh(chunk, vertexLists[k], indexLists[k]);
-            renderers[chunk].enabled = triangleCounts[chunk] > 0;
-            vertexLists[k].Dispose();
-        }
-        LastApplyMs = timer.Elapsed.TotalMilliseconds;
+            ApplyMesh(dirtyChunks[k], positionLists[k], normalLists[k], colorLists[k], indexLists[k]);
 
-        // 3. Коллайдеры
-        timer.Restart();
-        for (int k = 0; k < count; k++)
-        {
-            ApplyCollider(dirtyChunks[k], positionLists[k], indexLists[k]);
             positionLists[k].Dispose();
+            normalLists[k].Dispose();
+            colorLists[k].Dispose();
             indexLists[k].Dispose();
         }
-        LastColliderMs = timer.Elapsed.TotalMilliseconds;
+        LastApplyMs = timer.Elapsed.TotalMilliseconds;
 
         int total = 0;
         foreach (int triangles in triangleCounts)
@@ -367,58 +344,35 @@ public class VoxelArena : MonoBehaviour
         dirtyChunks.Clear();
     }
 
-    void ApplyMesh(int chunk, NativeList<VoxelVertex> vertices, NativeList<uint> indices)
+    // Меш собирается обычными SetVertices/SetNormals/SetColors/SetIndices, как в Voxer:
+    // один и тот же меш идёт и в отрисовку, и в MeshCollider
+    void ApplyMesh(int chunk, NativeList<float3> positions, NativeList<float3> normals,
+                   NativeList<Color32> colors, NativeList<uint> indices)
     {
         var mesh = meshes[chunk];
-        mesh.Clear();
-
-        int vertexCount = vertices.Length;
-        int indexCount = indices.Length;
-        triangleCounts[chunk] = indexCount / 3;
-
-        if (vertexCount == 0)
-            return;
-
-        // Флаги по умолчанию: Unity сама считает границы и диапазон вершин подмеша
-        mesh.SetVertexBufferParams(vertexCount, VertexLayout);
-        mesh.SetVertexBufferData(vertices.AsArray(), 0, 0, vertexCount);
-
-        mesh.SetIndexBufferParams(indexCount, IndexFormat.UInt32);
-        mesh.SetIndexBufferData(indices.AsArray(), 0, 0, indexCount);
-
-        mesh.subMeshCount = 1;
-        mesh.SetSubMesh(0, new SubMeshDescriptor(0, indexCount));
-
-        // Границы задаём явно: по ним Unity решает, виден ли чанк камере
-        mesh.bounds = new Bounds(Vector3.one * (ChunkSize * 0.5f), Vector3.one * ChunkSize);
-    }
-
-    void ApplyCollider(int chunk, NativeList<float3> positions, NativeList<uint> indices)
-    {
         var collider = colliders[chunk];
-        var mesh = colliderMeshes[chunk];
 
         // Переназначение заставляет коллайдер взять новые данные
         collider.sharedMesh = null;
         mesh.Clear();
 
-        if (indices.Length == 0)
-        {
-            collider.enabled = false;
+        triangleCounts[chunk] = indices.Length / 3;
+        bool hasMesh = indices.Length > 0;
+        renderers[chunk].enabled = hasMesh;
+        collider.enabled = hasMesh;
+
+        if (!hasMesh)
             return;
-        }
 
         mesh.indexFormat = IndexFormat.UInt32;
         mesh.SetVertices(positions.AsArray());
+        mesh.SetNormals(normals.AsArray());
+        mesh.SetColors(colors.AsArray());
         mesh.SetIndices(indices.AsArray(), MeshTopology.Triangles, 0);
 
-        collider.sharedMesh = mesh;
-        collider.enabled = true;
+        // Границы задаём явно: по ним Unity решает, виден ли чанк камере
+        mesh.bounds = new Bounds(Vector3.one * (ChunkSize * 0.5f), Vector3.one * ChunkSize);
 
-        if (collider.sharedMesh == null)
-        {
-            Debug.LogError($"[Arena] Коллайдер {collider.name} не принял меш: вершин {mesh.vertexCount}, " +
-                           $"индексов {indices.Length}, readable {mesh.isReadable}, bounds {mesh.bounds}", collider);
-        }
+        collider.sharedMesh = mesh;
     }
 }

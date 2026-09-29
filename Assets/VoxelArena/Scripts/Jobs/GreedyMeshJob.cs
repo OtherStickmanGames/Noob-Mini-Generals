@@ -1,18 +1,8 @@
-using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
-
-[StructLayout(LayoutKind.Sequential)]
-public struct VoxelVertex
-{
-    public float3 position;
-    public float3 normal;
-    // r — индекс палитры, g — затенение угла (AO), 0..255
-    public Color32 color;
-}
 
 /// <summary>
 /// Строит меш одного чанка. Соседние грани склеиваются в один прямоугольник,
@@ -28,10 +18,11 @@ public struct GreedyMeshJob : IJob
     public int3 chunkOrigin;
     public int chunkSize;
 
-    public NativeList<VoxelVertex> vertices;
-    public NativeList<uint> indices;
-    // Только позиции — для меша коллайдера в обычном формате
     public NativeList<float3> positions;
+    public NativeList<float3> normals;
+    // r — индекс палитры, g — затенение угла (AO), 0..255
+    public NativeList<Color32> colors;
+    public NativeList<uint> indices;
 
     public void Execute()
     {
@@ -146,16 +137,11 @@ public struct GreedyMeshJob : IJob
         int ao2 = (key >> 13) & 3;
         int ao3 = (key >> 15) & 3;
 
-        uint start = (uint)vertices.Length;
-        vertices.Add(Vertex(origin, normal, color, ao0));
-        vertices.Add(Vertex(origin + du, normal, color, ao1));
-        vertices.Add(Vertex(origin + du + dv, normal, color, ao2));
-        vertices.Add(Vertex(origin + dv, normal, color, ao3));
-
-        positions.Add(origin);
-        positions.Add(origin + du);
-        positions.Add(origin + du + dv);
-        positions.Add(origin + dv);
+        uint start = (uint)positions.Length;
+        AddVertex(origin, normal, color, ao0);
+        AddVertex(origin + du, normal, color, ao1);
+        AddVertex(origin + du + dv, normal, color, ao2);
+        AddVertex(origin + dv, normal, color, ao3);
 
         // cross(eu, ev) == ed, поэтому порядок 0-1-2 смотрит в +ed.
         // Диагональ выбираем так, чтобы затенение не растекалось по всему квадрату.
@@ -179,14 +165,11 @@ public struct GreedyMeshJob : IJob
         indices.Add(start + c);
     }
 
-    static VoxelVertex Vertex(float3 position, float3 normal, byte color, int ao)
+    void AddVertex(float3 position, float3 normal, byte color, int ao)
     {
-        return new VoxelVertex
-        {
-            position = position,
-            normal = normal,
-            color = new Color32(color, (byte)(ao * 85), 0, 255),
-        };
+        positions.Add(position);
+        normals.Add(normal);
+        colors.Add(new Color32(color, (byte)(ao * 85), 0, 255));
     }
 
     // Затенение угла: 3 — открыт, 0 — зажат с двух сторон
