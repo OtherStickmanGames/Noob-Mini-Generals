@@ -223,6 +223,8 @@ public class VoxelArena : MonoBehaviour
             sample ??= colliders[c].bounds;
         }
 
+        Physics.SyncTransforms();
+
         var bounds = WorldBounds;
         var origin = new Vector3(bounds.center.x, bounds.max.y + 10f, bounds.center.z);
         bool hit = Physics.Raycast(origin, Vector3.down, out var rayHit, bounds.size.y + 20f);
@@ -419,8 +421,17 @@ public class VoxelArena : MonoBehaviour
         mesh.SetIndexBufferParams(indexCount, IndexFormat.UInt32);
         mesh.SetIndexBufferData(indices.AsArray(), 0, 0, indexCount, flags);
 
+        var bounds = new Bounds(Vector3.one * (ChunkSize * 0.5f), Vector3.one * ChunkSize);
+
+        // С DontRecalculateBounds Unity не заполняет диапазон вершин подмеша сам.
+        // Отрисовке он не нужен, а MeshCollider без него видит 0 вершин и остаётся пустым.
         mesh.subMeshCount = 1;
-        mesh.SetSubMesh(0, new SubMeshDescriptor(0, indexCount), flags);
-        mesh.bounds = new Bounds(Vector3.one * (ChunkSize * 0.5f), Vector3.one * ChunkSize);
+        mesh.SetSubMesh(0, new SubMeshDescriptor(0, indexCount)
+        {
+            firstVertex = 0,
+            vertexCount = vertexCount,
+            bounds = bounds,
+        }, flags);
+        mesh.bounds = bounds;
     }
 }
