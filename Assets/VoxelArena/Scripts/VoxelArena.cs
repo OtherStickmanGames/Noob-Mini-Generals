@@ -20,9 +20,9 @@ public class VoxelArena : MonoBehaviour
     static readonly int VoxelSizeId = Shader.PropertyToID("_VoxelSize");
 
     [SerializeField] Material material;
-    [SerializeField] int sizeX = 160;
-    [SerializeField] int sizeY = 32;
-    [SerializeField] int sizeZ = 224;
+    [SerializeField] int sizeX = 256;
+    [SerializeField] int sizeY = 48;
+    [SerializeField] int sizeZ = 256;
     [SerializeField] float voxelSize = 0.5f;
     [SerializeField] ArenaGenSettings generation = ArenaGenSettings.Default;
 
@@ -38,6 +38,9 @@ public class VoxelArena : MonoBehaviour
     public ArenaBiome Biome { get; private set; }
     public Vector3 BaseOne { get; private set; }
     public Vector3 BaseTwo { get; private set; }
+    /// <summary>Мировые точки сразу снаружи ворот базы один и базы два</summary>
+    public Vector3 GateOne { get; private set; }
+    public Vector3 GateTwo { get; private set; }
 
     public int Seed
     {
@@ -163,7 +166,7 @@ public class VoxelArena : MonoBehaviour
         timer.Restart();
 
         Biome = ArenaBiomes.Resolve(generation.biome, generation.seed);
-        Layout = ArenaLayoutGenerator.Generate(generation, Biome, dims.x, dims.z);
+        Layout = ArenaLayoutGenerator.Generate(generation, Biome, dims.x, dims.y, dims.z);
         double layoutMs = timer.Elapsed.TotalMilliseconds;
 
         var height = new NativeArray<int>(Layout.height, Allocator.TempJob);
@@ -190,6 +193,8 @@ public class VoxelArena : MonoBehaviour
 
         BaseOne = ColumnTop(Layout.baseOne.x, Layout.baseOne.y);
         BaseTwo = ColumnTop(Layout.baseTwo.x, Layout.baseTwo.y);
+        GateOne = ColumnTop(Layout.gates[0].x, Layout.gates[0].y);
+        GateTwo = ColumnTop(Layout.gates[1].x, Layout.gates[1].y);
 
         for (int c = 0; c < chunks.Length; c++)
             MarkChunkDirty(c);
@@ -199,8 +204,7 @@ public class VoxelArena : MonoBehaviour
 
         Debug.Log($"[Arena] Сид {generation.seed}, биом {ArenaBiomes.DisplayName(Biome)}: " +
                   $"участков {Layout.regionCount}, рамп {Layout.rampCount}, выровнено {Layout.flattenedRegions}, " +
-                  $"базы связаны {Layout.basesConnected}, точки захвата достижимы {Layout.capturePointsReachable}, " +
-                  $"достижимо {Layout.reachableLand:P0} суши, " +
+                  $"по сетке: базы связаны {Layout.basesConnected}, точки захвата достижимы {Layout.capturePointsReachable}, " +
                   $"деревьев {Layout.trees.Count}, камней {Layout.rocks.Count}, " +
                   $"раскладка {layoutMs:0} мс, всего {LastGenerateMs:0} мс");
 

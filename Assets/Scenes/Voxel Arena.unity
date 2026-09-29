@@ -186,9 +186,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   material: {fileID: 2100000, guid: 9db67250b1c65c44db4336812fdc30d5, type: 2}
-  sizeX: 160
-  sizeY: 32
-  sizeZ: 224
+  sizeX: 256
+  sizeY: 48
+  sizeZ: 256
   voxelSize: 0.5
   generation:
     seed: 1

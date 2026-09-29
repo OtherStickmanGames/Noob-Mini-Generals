@@ -24,6 +24,7 @@ public struct ArenaGenerateJob : IJobParallelFor
         int water = math.min(waterTop[column], dims.y);
         bool sand = (flags[column] & ArenaLayout.FlagSand) != 0;
         bool cliff = (flags[column] & ArenaLayout.FlagCliff) != 0;
+        bool rock = (flags[column] & ArenaLayout.FlagRock) != 0;
         int top = h - 1;
         int layer = dims.x * dims.z;
 
@@ -34,7 +35,9 @@ public struct ArenaGenerateJob : IJobParallelFor
                 block = VoxelBlocks.Bedrock;
             else if (y < h)
             {
-                if (y == top)
+                if (rock)
+                    block = VoxelBlocks.Stone;
+                else if (y == top)
                     block = sand ? VoxelBlocks.Sand : VoxelBlocks.Grass;
                 else if (cliff)
                     // На краю обрыва стенка каменная, под травой один слой земли

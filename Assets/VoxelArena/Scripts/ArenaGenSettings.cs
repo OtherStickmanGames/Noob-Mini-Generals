@@ -9,11 +9,16 @@ public struct ArenaGenSettings
 {
     // Меняется, когда в настройках появляются новые поля:
     // сцена со старой версией получает значения по умолчанию
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
     [HideInInspector] public int version;
     public int seed;
     public ArenaBiomeChoice biome;
+
+    [Header("Горы по краю карты")]
+    public int borderWidth;
+    [Tooltip("На сколько блоков горы растут на клетку ближе к краю")]
+    public float borderSlope;
 
     [Header("Уровни высоты")]
     public int lowHeight;
@@ -55,12 +60,14 @@ public struct ArenaGenSettings
         version = CurrentVersion,
         seed = 1,
         biome = ArenaBiomeChoice.BySeed,
+        borderWidth = 14,
+        borderSlope = 1.2f,
         lowHeight = 6,
         midHeight = 10,
         highHeight = 15,
         lowShare = 0.33f,
         highShare = 0.24f,
-        levelNoiseScale = 0.022f,
+        levelNoiseScale = 0.02f,
         minRegionCells = 90,
         wallLevel1Size = 24,
         wallLevel2Size = 36,
@@ -71,7 +78,7 @@ public struct ArenaGenSettings
         basePadding = 4,
         rampWidth = 5,
         extraRampChance = 0.35f,
-        waterNoiseScale = 0.035f,
+        waterNoiseScale = 0.03f,
         waterThreshold = 0.12f,
         minLakeCells = 25,
         forestNoiseScale = 0.05f,

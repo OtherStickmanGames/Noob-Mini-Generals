@@ -38,20 +38,48 @@ public class ArenaTestController : MonoBehaviour
     float fps;
     int lastRemoved;
     string lastClick = "—";
+    string pathInfo = "—";
+    bool pathsChecked;
     Rect panelRect;
 
-    void Start()
+    void Awake()
     {
         arena = GetComponent<VoxelArena>();
         navMesh = GetComponent<ArenaNavMesh>();
+        arena.Generated += Arena_Generated;
+    }
+
+    void Start()
+    {
         cam = Camera.main;
 
         var bounds = arena.WorldBounds;
-        pivot = new Vector3(bounds.center.x, bounds.min.y + bounds.size.y * 0.3f, bounds.center.z);
-        maxDistance = Mathf.Max(bounds.size.x, bounds.size.z) * 1.4f;
+        maxDistance = Mathf.Max(bounds.size.x, bounds.size.z) * 1.2f;
         minDistance = 4f;
-        distance = maxDistance * 0.7f;
         cam.farClipPlane = Mathf.Max(cam.farClipPlane, maxDistance * 3f);
+        FocusOwnBase();
+    }
+
+    void OnDestroy()
+    {
+        arena.Generated -= Arena_Generated;
+    }
+
+    void Arena_Generated()
+    {
+        pathsChecked = false;
+        pathInfo = "ждём NavMesh";
+        if (cam != null)
+            FocusOwnBase();
+    }
+
+    // Своя база внизу экрана, противник — вверху
+    void FocusOwnBase()
+    {
+        var axis = arena.Layout.baseAxis;
+        yaw = Mathf.Atan2(axis.x, axis.y) * Mathf.Rad2Deg;
+        pivot = arena.BaseOne + new Vector3(axis.x, 0f, axis.y) * 20f;
+        distance = 45f;
     }
 
     void Update()
@@ -64,6 +92,44 @@ public class ArenaTestController : MonoBehaviour
 
         if (agents.Count == 0 && navMesh.HasNavMesh && !navMesh.IsBusy)
             SpawnAgents();
+
+        if (!pathsChecked && navMesh.HasNavMesh && !navMesh.IsBusy)
+            CheckPaths();
+    }
+
+    // Проверка по настоящему NavMesh: от ворот к воротам противника и к каждой точке захвата
+    void CheckPaths()
+    {
+        pathsChecked = true;
+        var path = new NavMeshPath();
+
+        string baseStatus = PathStatus(arena.GateOne, arena.GateTwo, path);
+
+        int complete = 0, total = 0;
+        foreach (var resource in arena.Layout.resources)
+        {
+            if (resource.kind != ResourceKind.CapturePoint)
+                continue;
+            total++;
+            // Край кольца точки захвата: центр занят рудным бугром
+            var target = arena.ColumnTop(resource.cell.x + 3, resource.cell.y);
+            if (PathStatus(arena.GateOne, target, path) == "полный")
+                complete++;
+        }
+
+        pathInfo = $"база→база {baseStatus}, точки захвата {complete}/{total}";
+        Debug.Log($"[Arena] NavMesh: путь {pathInfo}");
+    }
+
+    static string PathStatus(Vector3 from, Vector3 to, NavMeshPath path)
+    {
+        if (!NavMesh.SamplePosition(from, out var a, 3f, NavMesh.AllAreas))
+            return "нет навмеша у старта";
+        if (!NavMesh.SamplePosition(to, out var b, 3f, NavMesh.AllAreas))
+            return "нет навмеша у цели";
+        if (!NavMesh.CalculatePath(a.position, b.position, NavMesh.AllAreas, path))
+            return "не найден";
+        return path.status == NavMeshPathStatus.PathComplete ? "полный" : "частичный";
     }
 
     void LateUpdate()
@@ -266,6 +332,7 @@ public class ArenaTestController : MonoBehaviour
         GUILayout.Label($"  меш (джобы): {arena.LastMeshMs:0.00} мс");
         GUILayout.Label($"  меш + коллайдер: {arena.LastApplyMs:0.00} мс");
         GUILayout.Label($"NavMesh: {navMesh.LastBuildMs:0.0} мс за {navMesh.LastBuildFrames} кадр., плитка {navMesh.TileSize}");
+        GUILayout.Label($"Путь: {pathInfo}");
         GUILayout.Label($"Клик: {lastClick}");
 
         if (GUILayout.Button("Новая карта"))
