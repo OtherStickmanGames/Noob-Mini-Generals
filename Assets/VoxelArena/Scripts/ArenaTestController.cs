@@ -240,12 +240,15 @@ public class ArenaTestController : MonoBehaviour
 
     void OnGUI()
     {
-        int fontSize = Mathf.Max(14, Screen.height / 45);
+        int fontSize = Mathf.Clamp(Mathf.Min(Screen.width, Screen.height) / 40, 11, 40);
         GUI.skin.label.fontSize = fontSize;
         GUI.skin.button.fontSize = fontSize;
+        GUI.skin.label.wordWrap = false;
 
-        panelRect = new Rect(10, 10, fontSize * 20, fontSize * 17);
-        GUILayout.BeginArea(panelRect, GUI.skin.box);
+        // Высота панели считается по содержимому, чтобы кнопки не обрезались
+        var area = new Rect(10, 10, Screen.width - 20, Screen.height - 20);
+        GUILayout.BeginArea(area);
+        GUILayout.BeginVertical(GUI.skin.box, GUILayout.ExpandWidth(false));
 
         var dims = arena.Dims;
         GUILayout.Label($"FPS: {fps:0}");
@@ -262,6 +265,14 @@ public class ArenaTestController : MonoBehaviour
 
         if (GUILayout.Button("Агенты к другой базе"))
             ToggleAgentsTarget();
+
+        GUILayout.EndVertical();
+
+        if (Event.current.type == EventType.Repaint)
+        {
+            var panel = GUILayoutUtility.GetLastRect();
+            panelRect = new Rect(panel.x + area.x, panel.y + area.y, panel.width, panel.height);
+        }
 
         GUILayout.EndArea();
     }

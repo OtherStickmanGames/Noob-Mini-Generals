@@ -13,6 +13,14 @@ public static class VoxelArenaSetup
     [MenuItem("Tools/Voxel Arena/Create Test Setup")]
     static void CreateTestSetup()
     {
+        var existing = Object.FindObjectOfType<VoxelArena>();
+        if (existing != null)
+        {
+            Debug.Log("В сцене уже есть арена, вторая не создаётся", existing);
+            Selection.activeGameObject = existing.gameObject;
+            return;
+        }
+
         var material = AssetDatabase.LoadAssetAtPath<Material>(MaterialPath);
         if (material == null)
         {
