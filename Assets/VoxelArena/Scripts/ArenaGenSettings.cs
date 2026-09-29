@@ -7,6 +7,11 @@ using UnityEngine;
 [Serializable]
 public struct ArenaGenSettings
 {
+    // Меняется, когда в настройках появляются новые поля:
+    // сцена со старой версией получает значения по умолчанию
+    public const int CurrentVersion = 3;
+
+    [HideInInspector] public int version;
     public int seed;
     public ArenaBiomeChoice biome;
 
@@ -20,9 +25,15 @@ public struct ArenaGenSettings
     [Tooltip("Участки меньше этой площади вливаются в соседние")]
     public int minRegionCells;
 
-    [Header("Базы и ресурсы")]
-    public int baseMargin;
-    public int baseRadius;
+    [Header("База: стены (внутренняя сторона квадрата по уровням)")]
+    public int wallLevel1Size;
+    public int wallLevel2Size;
+    public int wallLevel3Size;
+    public int wallThickness;
+    public int wallHeight;
+    public int gateWidth;
+    [Tooltip("Ровный отступ вокруг стен 3-го уровня")]
+    public int basePadding;
 
     [Header("Рампы")]
     public int rampWidth;
@@ -41,6 +52,7 @@ public struct ArenaGenSettings
 
     public static ArenaGenSettings Default => new()
     {
+        version = CurrentVersion,
         seed = 1,
         biome = ArenaBiomeChoice.BySeed,
         lowHeight = 6,
@@ -50,8 +62,13 @@ public struct ArenaGenSettings
         highShare = 0.24f,
         levelNoiseScale = 0.022f,
         minRegionCells = 90,
-        baseMargin = 16,
-        baseRadius = 11,
+        wallLevel1Size = 24,
+        wallLevel2Size = 36,
+        wallLevel3Size = 48,
+        wallThickness = 2,
+        wallHeight = 4,
+        gateWidth = 4,
+        basePadding = 4,
         rampWidth = 5,
         extraRampChance = 0.35f,
         waterNoiseScale = 0.035f,

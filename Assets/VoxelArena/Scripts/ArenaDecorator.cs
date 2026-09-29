@@ -8,7 +8,7 @@ using static VoxelBlocks;
 /// </summary>
 public static class ArenaDecorator
 {
-    public static void Decorate(NativeArray<byte> voxels, int3 dims, ArenaLayout layout, ArenaBiome biome, int seed)
+    public static void Decorate(NativeArray<byte> voxels, int3 dims, ArenaLayout layout, ArenaBiome biome, int seed, int wallHeight)
     {
         var writer = new Writer(voxels, dims);
         var rnd = new System.Random(seed * 31 + 5);
@@ -38,12 +38,56 @@ public static class ArenaDecorator
             Rock(writer, new int3(cell.x, ground, cell.y), rnd);
         }
 
+        foreach (var wall in layout.walls)
+        {
+            int ground = layout.height[wall.cell.y * dims.x + wall.cell.x];
+            int top = wallHeight + (wall.outer && Merlon(wall.cell) ? 1 : 0);
+            for (int y = 0; y < top; y++)
+                writer.Set(new int3(wall.cell.x, ground + y, wall.cell.y), Wall);
+        }
+
         foreach (var resource in layout.resources)
         {
             int ground = layout.height[resource.cell.y * dims.x + resource.cell.x];
-            byte ore = resource.kind == ResourceKind.Gold ? GoldOre : IronOre;
-            OreMound(writer, new int3(resource.cell.x, ground, resource.cell.y), ore);
+            var root = new int3(resource.cell.x, ground, resource.cell.y);
+
+            if (resource.kind == ResourceKind.BaseDeposit)
+                DepositMound(writer, root);
+            else
+                CapturePoint(writer, root);
         }
+    }
+
+    // Зубцы: два блока через два
+    static bool Merlon(int2 cell) => ((cell.x + cell.y) / 2) % 2 == 0;
+
+    // Месторождение на базе: руда 3x3 вровень с землёй и бугор в центре
+    static void DepositMound(Writer w, int3 root)
+    {
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dx = -1; dx <= 1; dx++)
+                w.Set(root + new int3(dx, -1, dz), GoldOre);
+
+        w.Set(root, GoldOre);
+        w.Set(root + new int3(1, 0, 0), GoldOre);
+        w.Set(root + new int3(0, 0, 1), GoldOre);
+        w.Set(root + new int3(0, 1, 0), GoldOre);
+    }
+
+    // Точка захвата: светлое кольцо в земле радиусом 3 и рудный бугор в центре
+    static void CapturePoint(Writer w, int3 root)
+    {
+        for (int dz = -3; dz <= 3; dz++)
+        {
+            for (int dx = -3; dx <= 3; dx++)
+            {
+                bool ring = math.max(math.abs(dx), math.abs(dz)) == 3;
+                if (ring)
+                    w.Set(root + new int3(dx, -1, dz), Marker);
+            }
+        }
+
+        OreMound(w, root, IronOre);
     }
 
     // Лиственное дерево: ствол и круглая крона; осенью крона пёстрая

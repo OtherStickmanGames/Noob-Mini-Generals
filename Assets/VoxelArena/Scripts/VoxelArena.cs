@@ -20,9 +20,9 @@ public class VoxelArena : MonoBehaviour
     static readonly int VoxelSizeId = Shader.PropertyToID("_VoxelSize");
 
     [SerializeField] Material material;
-    [SerializeField] int sizeX = 128;
+    [SerializeField] int sizeX = 160;
     [SerializeField] int sizeY = 32;
-    [SerializeField] int sizeZ = 128;
+    [SerializeField] int sizeZ = 224;
     [SerializeField] float voxelSize = 0.5f;
     [SerializeField] ArenaGenSettings generation = ArenaGenSettings.Default;
 
@@ -122,7 +122,7 @@ public class VoxelArena : MonoBehaviour
         Shader.SetGlobalFloat(VoxelSizeId, voxelSize);
 
         // Сцены, сохранённые со старой версией настроек, не знают новых полей
-        if (generation.midHeight <= 0)
+        if (generation.version != ArenaGenSettings.CurrentVersion)
         {
             int seed = generation.seed;
             generation = ArenaGenSettings.Default;
@@ -185,7 +185,7 @@ public class VoxelArena : MonoBehaviour
         waterTop.Dispose();
         flags.Dispose();
 
-        ArenaDecorator.Decorate(voxels, dims, Layout, Biome, generation.seed);
+        ArenaDecorator.Decorate(voxels, dims, Layout, Biome, generation.seed, generation.wallHeight);
         VoxelBlocks.WritePalette(paletteTexture, ArenaBiomes.Palette(Biome));
 
         BaseOne = ColumnTop(Layout.baseOne.x, Layout.baseOne.y);
@@ -199,7 +199,8 @@ public class VoxelArena : MonoBehaviour
 
         Debug.Log($"[Arena] Сид {generation.seed}, биом {ArenaBiomes.DisplayName(Biome)}: " +
                   $"участков {Layout.regionCount}, рамп {Layout.rampCount}, выровнено {Layout.flattenedRegions}, " +
-                  $"базы связаны {Layout.basesConnected}, достижимо {Layout.reachableLand:P0} суши, " +
+                  $"базы связаны {Layout.basesConnected}, точки захвата достижимы {Layout.capturePointsReachable}, " +
+                  $"достижимо {Layout.reachableLand:P0} суши, " +
                   $"деревьев {Layout.trees.Count}, камней {Layout.rocks.Count}, " +
                   $"раскладка {layoutMs:0} мс, всего {LastGenerateMs:0} мс");
 

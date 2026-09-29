@@ -5,14 +5,25 @@ using UnityEngine;
 
 public enum ResourceKind
 {
-    Gold,
-    Iron,
+    /// <summary>Месторождение базового ресурса внутри стен</summary>
+    BaseDeposit,
+    /// <summary>Точка захвата с ценным ресурсом в поле</summary>
+    CapturePoint,
 }
 
 public struct ResourcePoint
 {
     public int2 cell;
     public ResourceKind kind;
+    /// <summary>Для месторождений — уровень стен, внутри которого оно лежит (1..3). Команда: 0 — база один, 1 — база два.</summary>
+    public int wallLevel;
+    public int team;
+}
+
+public struct WallCell
+{
+    public int2 cell;
+    public bool outer;  // внешний ряд — на нём зубцы
 }
 
 /// <summary>
@@ -33,6 +44,10 @@ public class ArenaLayout
 
     public int2 baseOne;
     public int2 baseTwo;
+    /// <summary>Стены 1-го уровня обеих баз</summary>
+    public readonly List<WallCell> walls = new();
+    /// <summary>Середина проёма ворот: [0] — база один, [1] — база два</summary>
+    public readonly List<int2> gates = new();
     public readonly List<ResourcePoint> resources = new();
     public readonly List<int2> trees = new();
     public readonly List<int2> rocks = new();
@@ -42,6 +57,7 @@ public class ArenaLayout
     public int rampCount;
     public int flattenedRegions;
     public bool basesConnected;
+    public bool capturePointsReachable;
     public float reachableLand;
 }
 
@@ -85,6 +101,10 @@ public static class ArenaLayoutGenerator
         int[] parent;
 
         readonly List<ResourcePoint> resources = new();
+        readonly List<WallCell> walls = new();
+        readonly List<int2> gates = new();
+        bool[] wallMask;
+        int baseHalf;  // полуразмер ровной площадки базы
         int rampCount;
 
         public Builder(ArenaGenSettings settings, ArenaBiome biome, int sizeX, int sizeZ)
@@ -111,13 +131,15 @@ public static class ArenaLayoutGenerator
         public ArenaLayout Run()
         {
             int cx = (sx - 1) / 2;
-            baseA = new int2(cx, s.baseMargin);
+            baseHalf = s.wallLevel3Size / 2 + s.wallThickness + s.basePadding;
+            baseA = new int2(cx, baseHalf + 2);
             baseB = Mirror(baseA);
 
             BuildLevels();
             SmoothLevels();
             RemoveSmallRegions();
-            PlaceResources();
+            PlaceBaseContent();
+            PlaceCapturePoints();
             PlaceWater();
 
             int flattened = 0;
@@ -136,6 +158,8 @@ public static class ArenaLayoutGenerator
                 flattenedRegions = flattened,
             };
             layout.resources.AddRange(resources);
+            layout.walls.AddRange(walls);
+            layout.gates.AddRange(gates);
 
             PlaceTreesAndRocks(layout);
             FillLayout(layout);
@@ -193,9 +217,9 @@ public static class ArenaLayoutGenerator
             {
                 for (int x = 0; x < sx; x++)
                 {
-                    var c = new float2(x, z);
-                    float d = math.min(math.distance(c, baseA), math.distance(c, baseB));
-                    baseMask[Idx(x, z)] = d <= s.baseRadius + 2;
+                    bool inA = math.abs(x - baseA.x) <= baseHalf && math.abs(z - baseA.y) <= baseHalf;
+                    bool inB = math.abs(x - baseB.x) <= baseHalf && math.abs(z - baseB.y) <= baseHalf;
+                    baseMask[Idx(x, z)] = inA || inB;
                 }
             }
 
@@ -333,36 +357,128 @@ public static class ArenaLayoutGenerator
             }
         }
 
-        // ---------- 4. Ресурсы: площадки под шахты ----------
+        // ---------- 4. База: стены, ворота, месторождения ----------
 
-        void PlaceResources()
+        void PlaceBaseContent()
         {
             reserved = (bool[])baseMask.Clone();
+            wallMask = new bool[n];
 
-            AddResource(baseA + new int2(8, 2), ResourceKind.Gold);
-            AddResource(baseA + new int2(-8, 2), ResourceKind.Iron);
-            AddResource(new int2((sx - 1) / 2 + 24, sz / 2 - 3), ResourceKind.Gold);
+            // Стены 1-го уровня базы A, ворота смотрят на противника (+z). База B — зеркально.
+            int h = s.wallLevel1Size / 2;
+            int t = s.wallThickness;
+            int g = s.gateWidth / 2;
+            for (int dz = -h - t; dz < h + t; dz++)
+            {
+                for (int dx = -h - t; dx < h + t; dx++)
+                {
+                    bool inner = dx >= -h && dx < h && dz >= -h && dz < h;
+                    bool gate = dz >= h && dx >= -g && dx < g;
+                    if (inner || gate)
+                        continue;
+
+                    bool outer = dx == -h - t || dx == h + t - 1 || dz == -h - t || dz == h + t - 1;
+                    var cell = baseA + new int2(dx, dz);
+                    AddWall(cell, outer);
+                    AddWall(Mirror(cell), outer);
+                }
+            }
+
+            var gateA = baseA + new int2(0, h);
+            gates.Add(gateA);
+            gates.Add(Mirror(gateA));
+
+            // Месторождения базового ресурса: по два внутри каждого уровня стен.
+            // Бугор 3x3 не должен налезать на стены ни одного уровня (при 24/36/48 и толщине 2).
+            AddDeposit(new int2(-8, -7), 1);
+            AddDeposit(new int2(8, -7), 1);
+            AddDeposit(new int2(-16, 5), 2);
+            AddDeposit(new int2(16, 5), 2);
+            AddDeposit(new int2(-22, -12), 3);
+            AddDeposit(new int2(22, -12), 3);
         }
 
-        void AddResource(int2 cell, ResourceKind kind)
+        void AddWall(int2 cell, bool outer)
         {
-            foreach (var c in new[] { cell, Mirror(cell) })
-            {
-                resources.Add(new ResourcePoint { cell = c, kind = kind });
+            walls.Add(new WallCell { cell = cell, outer = outer });
+            wallMask[Idx(cell.x, cell.y)] = true;
+        }
 
-                int l = level[Idx(c.x, c.y)];
-                for (int dz = -3; dz <= 3; dz++)
+        void AddDeposit(int2 offset, int wallLevel)
+        {
+            var cell = baseA + offset;
+            resources.Add(new ResourcePoint { cell = cell, kind = ResourceKind.BaseDeposit, wallLevel = wallLevel, team = 0 });
+            resources.Add(new ResourcePoint { cell = Mirror(cell), kind = ResourceKind.BaseDeposit, wallLevel = wallLevel, team = 1 });
+        }
+
+        // ---------- Точки захвата ----------
+
+        void PlaceCapturePoints()
+        {
+            int cx = (sx - 1) / 2;
+            var targets = new[]
+            {
+                new int2(cx, baseA.y + baseHalf + 14),                          // ближняя
+                new int2((int)(cx - sx * 0.32f), (int)(sz * 0.4f)),             // фланги
+                new int2((int)(cx + sx * 0.32f), (int)(sz * 0.4f)),
+                new int2((int)(cx + sx * 0.18f), sz / 2 - 4),                   // спорная у центра
+            };
+
+            foreach (var target in targets)
+            {
+                if (!SnapCapturePoint(target, out var cell))
+                    continue;
+
+                foreach (var c in new[] { cell, Mirror(cell) })
                 {
-                    for (int dx = -3; dx <= 3; dx++)
+                    resources.Add(new ResourcePoint { cell = c, kind = ResourceKind.CapturePoint, team = -1 });
+                    for (int dz = -4; dz <= 4; dz++)
+                        for (int dx = -4; dx <= 4; dx++)
+                            reserved[Idx(c.x + dx, c.y + dz)] = true;
+                }
+            }
+        }
+
+        // Ближайшая к цели клетка, вокруг которой 9x9 одного уровня и ничего не занято
+        bool SnapCapturePoint(int2 target, out int2 cell)
+        {
+            for (int r = 0; r < 16; r++)
+            {
+                for (int dz = -r; dz <= r; dz++)
+                {
+                    for (int dx = -r; dx <= r; dx++)
                     {
-                        int x = c.x + dx, z = c.y + dz;
-                        if (!Inside(x, z))
+                        if (math.max(math.abs(dx), math.abs(dz)) != r)
                             continue;
-                        level[Idx(x, z)] = l;
-                        reserved[Idx(x, z)] = true;
+                        var c = target + new int2(dx, dz);
+                        if (Uniform9(c))
+                        {
+                            cell = c;
+                            return true;
+                        }
                     }
                 }
             }
+
+            cell = default;
+            return false;
+        }
+
+        bool Uniform9(int2 c)
+        {
+            if (!Inside(c.x, c.y))
+                return false;
+            int l = level[Idx(c.x, c.y)];
+            for (int dz = -4; dz <= 4; dz++)
+            {
+                for (int dx = -4; dx <= 4; dx++)
+                {
+                    int x = c.x + dx, z = c.y + dz;
+                    if (!Inside(x, z) || level[Idx(x, z)] != l || reserved[Idx(x, z)])
+                        return false;
+                }
+            }
+            return true;
         }
 
         // ---------- 5. Вода в низинах ----------
@@ -837,7 +953,7 @@ public static class ArenaLayoutGenerator
                     if (!Inside(xx, zz))
                         continue;
                     int j = Idx(xx, zz);
-                    if (seen[j] || water[j] || math.abs(layout.height[j] - layout.height[i]) > 1)
+                    if (seen[j] || water[j] || wallMask[j] || math.abs(layout.height[j] - layout.height[i]) > 1)
                         continue;
                     seen[j] = true;
                     queue[tail++] = j;
@@ -847,7 +963,7 @@ public static class ArenaLayoutGenerator
             int landCells = 0, reached = 0;
             for (int i = 0; i < n; i++)
             {
-                if (water[i])
+                if (water[i] || wallMask[i])
                     continue;
                 landCells++;
                 if (seen[i])
@@ -855,6 +971,10 @@ public static class ArenaLayoutGenerator
             }
 
             layout.basesConnected = seen[Idx(baseB.x, baseB.y)];
+            layout.capturePointsReachable = true;
+            foreach (var r in layout.resources)
+                if (r.kind == ResourceKind.CapturePoint && !seen[Idx(r.cell.x, r.cell.y)])
+                    layout.capturePointsReachable = false;
             layout.reachableLand = landCells > 0 ? (float)reached / landCells : 0f;
         }
 

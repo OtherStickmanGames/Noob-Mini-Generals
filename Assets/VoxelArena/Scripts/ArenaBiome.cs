@@ -53,6 +53,9 @@ public static class ArenaBiomes
         p[SlotGoldOre] = new Color32(236, 196, 52, 255);
         p[SlotIronOre] = new Color32(170, 108, 88, 255);
         p[SlotSnow] = new Color32(242, 246, 250, 255);
+        p[SlotMarker] = new Color32(232, 232, 226, 255);
+        p[SlotWallTop] = new Color32(152, 148, 142, 255);
+        p[SlotWallSide] = new Color32(122, 118, 112, 255);
 
         switch (biome)
         {
@@ -93,6 +96,8 @@ public static class ArenaBiomes
                 p[SlotWoodTop] = new Color32(128, 98, 70, 255);
                 p[SlotLeaves] = new Color32(38, 86, 58, 255);
                 p[SlotLeavesAlt] = new Color32(50, 100, 70, 255);
+                p[SlotWallTop] = new Color32(172, 178, 188, 255);
+                p[SlotWallSide] = new Color32(138, 144, 156, 255);
                 break;
 
             default: // Desert
@@ -106,6 +111,8 @@ public static class ArenaBiomes
                 p[SlotWoodTop] = new Color32(150, 116, 80, 255);
                 p[SlotLeaves] = new Color32(76, 138, 68, 255);
                 p[SlotLeavesAlt] = new Color32(96, 160, 82, 255);
+                p[SlotWallTop] = new Color32(210, 174, 124, 255);
+                p[SlotWallSide] = new Color32(182, 146, 100, 255);
                 break;
         }
 

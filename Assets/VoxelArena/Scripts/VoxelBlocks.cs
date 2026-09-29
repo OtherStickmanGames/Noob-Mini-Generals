@@ -20,7 +20,9 @@ public static class VoxelBlocks
     public const byte Snow = 10;
     public const byte GoldOre = 11;
     public const byte IronOre = 12;
-    public const int Count = 13;
+    public const byte Wall = 13;
+    public const byte Marker = 14;
+    public const int Count = 15;
 
     public const int FaceTop = 0;
     public const int FaceSide = 1;
@@ -41,7 +43,10 @@ public static class VoxelBlocks
     public const byte SlotSnow = 12;
     public const byte SlotGoldOre = 13;
     public const byte SlotIronOre = 14;
-    public const int SlotCount = 15;
+    public const byte SlotWallTop = 15;
+    public const byte SlotWallSide = 16;
+    public const byte SlotMarker = 17;
+    public const int SlotCount = 18;
 
     // top, side, bottom
     static readonly byte[,] faces =
@@ -59,6 +64,8 @@ public static class VoxelBlocks
         { SlotSnow, SlotSnow, SlotSnow },                   // Snow
         { SlotGoldOre, SlotGoldOre, SlotGoldOre },          // GoldOre
         { SlotIronOre, SlotIronOre, SlotIronOre },          // IronOre
+        { SlotWallTop, SlotWallSide, SlotWallSide },        // Wall
+        { SlotMarker, SlotMarker, SlotMarker },             // Marker
     };
 
     /// <summary>Вода и бедрок взрывом не выбиваются.</summary>
