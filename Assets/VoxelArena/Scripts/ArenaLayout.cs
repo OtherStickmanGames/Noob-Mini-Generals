@@ -839,23 +839,7 @@ public static class ArenaLayoutGenerator
             if (AllConnected(baseComp))
                 return true;
 
-            // Запасной путь 1: узкие рампы к оторванным участкам
-            foreach (long key in pairs)
-            {
-                int a = (int)(key / 1_000_000), b = (int)(key % 1_000_000);
-                bool aLinked = Find(a) == Find(baseComp);
-                bool bLinked = Find(b) == Find(baseComp);
-                if (aLinked == bLinked || !TryAddRamp(pairSites[key], 3))
-                    continue;
-
-                Union(a, b);
-                Union(MirrorComp(a), MirrorComp(b));
-            }
-
-            if (AllConnected(baseComp))
-                return true;
-
-            // Запасной путь 2: оторванный участок выравнивается под соседний связанный уровень
+            // Запасной путь: оторванный участок выравнивается под соседний связанный уровень
             var counts = new Dictionary<int, int[]>();
             for (int c = 0; c < compSize.Count; c++)
                 if (Find(c) != Find(baseComp))
@@ -907,8 +891,9 @@ public static class ArenaLayoutGenerator
 
         /// <summary>
         /// Обход от старта: шаг по высоте не больше блока. Клетка проходима, если на ней
-        /// и у её 4 соседей нет препятствий и обрывов — так учитывается ширина агента
-        /// (радиус 0.5 м = клетка).
+        /// и у всех 8 соседей нет препятствий и обрывов: проход должен быть шириной
+        /// минимум 3 клетки (1.5 м). Навмеш сужает проходы на радиус агента с каждой стороны,
+        /// и более узкие места в нём закрываются.
         /// </summary>
         bool[] Walk(int2 start, bool[] obstacles, int[] previous)
         {
@@ -951,14 +936,17 @@ public static class ArenaLayoutGenerator
             int i = Idx(x, z);
             if (Blocked(i, obstacles))
                 return false;
-            foreach (var d in Dirs)
+            for (int dz = -1; dz <= 1; dz++)
             {
-                int xx = x + d.x, zz = z + d.y;
-                if (!Inside(xx, zz))
-                    return false;
-                int j = Idx(xx, zz);
-                if (Blocked(j, obstacles) || math.abs(height[j] - height[i]) > 1)
-                    return false;
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int xx = x + dx, zz = z + dz;
+                    if (!Inside(xx, zz))
+                        return false;
+                    int j = Idx(xx, zz);
+                    if (Blocked(j, obstacles) || math.abs(height[j] - height[i]) > 1)
+                        return false;
+                }
             }
             return true;
         }

@@ -123,6 +123,7 @@ public class VoxelArena : MonoBehaviour
     readonly List<int> dirtyChunks = new();
 
     readonly Stopwatch timer = new();
+    readonly Stopwatch generateTimer = new();
 
     void Awake()
     {
@@ -175,11 +176,11 @@ public class VoxelArena : MonoBehaviour
 
     public void Generate()
     {
-        timer.Restart();
+        generateTimer.Restart();
 
         Biome = ArenaBiomes.Resolve(generation.biome, generation.seed);
         Layout = ArenaLayoutGenerator.Generate(generation, Biome, dims.x, dims.y, dims.z);
-        double layoutMs = timer.Elapsed.TotalMilliseconds;
+        double layoutMs = generateTimer.Elapsed.TotalMilliseconds;
 
         var height = new NativeArray<int>(Layout.height, Allocator.TempJob);
         var waterTop = new NativeArray<int>(Layout.waterTop, Allocator.TempJob);
@@ -213,7 +214,7 @@ public class VoxelArena : MonoBehaviour
             MarkChunkDirty(c);
 
         RebuildDirtyChunks();
-        LastGenerateMs = timer.Elapsed.TotalMilliseconds;
+        LastGenerateMs = generateTimer.Elapsed.TotalMilliseconds;
 
         Debug.Log($"[Arena] Сид {generation.seed}, биом {ArenaBiomes.DisplayName(Biome)}: " +
                   $"участков {Layout.regionCount}, рамп {Layout.rampCount}, выровнено {Layout.flattenedRegions}, " +
