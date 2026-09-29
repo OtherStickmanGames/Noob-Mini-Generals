@@ -36,7 +36,8 @@ public class ArenaLayout
     public const byte FlagSand = 1;   // сверху песок (берег, дно озера)
     public const byte FlagCliff = 2;  // край обрыва: под верхним блоком сразу камень
     public const byte FlagRamp = 4;
-    public const byte FlagRock = 8;   // горы по краю: камень до самого верха
+    public const byte FlagRock = 8;       // горы по краю: камень до самого верха
+    public const byte FlagSoftTop = 16;   // пологий склон горы: сверху трава
 
     public int sizeX;
     public int sizeZ;
@@ -90,9 +91,11 @@ public static class ArenaLayoutGenerator
         readonly int sx, sy, sz, n;
         readonly int[] levelHeights;
         readonly System.Random rnd;
-        readonly float2 levelOffset, waterOffset, forestOffset, mountainOffset;
+        readonly float2 levelOffset, waterOffset, forestOffset, mountainOffset, borderOffset;
 
         int[] level;
+        int[] edge;          // расстояние до края карты
+        int[] mountainDepth; // расстояние вглубь гор от подножия
         bool[] border, baseMask, reserved, water, shore, rampMask, wallMask, corridor;
         int[] height;
 
@@ -130,6 +133,7 @@ public static class ArenaLayoutGenerator
             waterOffset = random.NextFloat2(new float2(-5000f), new float2(5000f));
             forestOffset = random.NextFloat2(new float2(-5000f), new float2(5000f));
             mountainOffset = random.NextFloat2(new float2(-5000f), new float2(5000f));
+            borderOffset = random.NextFloat2(new float2(-5000f), new float2(5000f));
         }
 
         int Idx(int x, int z) => z * sx + x;
@@ -143,6 +147,7 @@ public static class ArenaLayoutGenerator
         {
             BuildBorder();
             PlaceBases();
+            ClearBorderAroundBases();
             BuildLevels();
             SmoothLevels();
             RemoveSmallRegions();
@@ -155,6 +160,7 @@ public static class ArenaLayoutGenerator
             for (int attempt = 0; attempt < 6 && !connected; attempt++)
                 connected = PlaceRamps(ref flattened);
 
+            BuildMountains();
             BuildCorridors();
 
             var layout = new ArenaLayout
@@ -216,10 +222,33 @@ public static class ArenaLayoutGenerator
 
         void BuildBorder()
         {
+            // Ширина гор меняется по симметричному шуму — край карты неровный, с заливами
+            var widthNoise = SymmetricNoise(s.borderNoiseScale, 3, borderOffset);
+            edge = new int[n];
             border = new bool[n];
             for (int z = 0; z < sz; z++)
+            {
                 for (int x = 0; x < sx; x++)
-                    border[Idx(x, z)] = EdgeDistance(x, z) < s.borderWidth;
+                {
+                    int i = Idx(x, z);
+                    edge[i] = EdgeDistance(x, z);
+                    float t = math.saturate(widthNoise[i] * 1.6f + 0.45f);
+                    border[i] = edge[i] < math.lerp(s.borderMinWidth, s.borderMaxWidth, t);
+                }
+            }
+        }
+
+        // Горы не заходят на площадку базы и отступ вокруг неё
+        void ClearBorderAroundBases()
+        {
+            foreach (var b in new[] { baseA, baseB })
+            {
+                int r = baseHalf + 6;
+                for (int z = b.y - r; z <= b.y + r; z++)
+                    for (int x = b.x - r; x <= b.x + r; x++)
+                        if (Inside(x, z) && edge[Idx(x, z)] >= s.borderMinWidth)
+                            border[Idx(x, z)] = false;
+            }
         }
 
         // ---------- Базы на случайной оси через центр ----------
@@ -233,11 +262,12 @@ public static class ArenaLayoutGenerator
 
             // Как можно дальше друг от друга, но площадка базы целиком внутри гор
             var center = new float2((sx - 1) * 0.5f, (sz - 1) * 0.5f);
-            float limitX = sx * 0.5f - s.borderWidth - baseHalf - 3;
-            float limitZ = sz * 0.5f - s.borderWidth - baseHalf - 3;
+            // За базой остаётся поле шириной baseBackSpace до самых широких гор
+            float limitX = sx * 0.5f - s.borderMaxWidth - baseHalf - s.baseBackSpace;
+            float limitZ = sz * 0.5f - s.borderMaxWidth - baseHalf - s.baseBackSpace;
             float dx = math.abs(axis.x) > 1e-3f ? limitX / math.abs(axis.x) : float.MaxValue;
             float dz = math.abs(axis.y) > 1e-3f ? limitZ / math.abs(axis.y) : float.MaxValue;
-            baseDistance = math.min(dx, dz) * 0.95f;
+            baseDistance = math.min(dx, dz);
 
             baseA = (int2)math.round(center - axis * baseDistance);
             baseB = Mirror(baseA);
@@ -951,6 +981,63 @@ public static class ArenaLayoutGenerator
             return -1;
         }
 
+        // ---------- Горы ----------
+
+        void BuildMountains()
+        {
+            // Расстояние вглубь гор от подножия
+            mountainDepth = new int[n];
+            var queue = new int[n];
+            int head = 0, tail = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (!border[i])
+                    continue;
+                int x = i % sx, z = i / sx;
+                foreach (var d in Dirs)
+                {
+                    int xx = x + d.x, zz = z + d.y;
+                    if (Inside(xx, zz) && !border[Idx(xx, zz)])
+                    {
+                        mountainDepth[i] = 1;
+                        queue[tail++] = i;
+                        break;
+                    }
+                }
+            }
+            while (head < tail)
+            {
+                int i = queue[head++];
+                int x = i % sx, z = i / sx;
+                foreach (var d in Dirs)
+                {
+                    int xx = x + d.x, zz = z + d.y;
+                    if (!Inside(xx, zz))
+                        continue;
+                    int j = Idx(xx, zz);
+                    if (border[j] && mountainDepth[j] == 0)
+                    {
+                        mountainDepth[j] = mountainDepth[i] + 1;
+                        queue[tail++] = j;
+                    }
+                }
+            }
+
+            // Подъём от подножия, гребни (ridged noise) и отдельные вершины
+            for (int i = 0; i < n; i++)
+            {
+                if (!border[i])
+                    continue;
+                var p = new float2(i % sx, i / sx);
+                float t = math.saturate((float)mountainDepth[i] / s.mountainRise);
+                t = t * t * (3f - 2f * t);
+                float ridge = 1f - math.abs(noise.snoise(p * 0.05f + mountainOffset));
+                float peaks = noise.snoise(p * 0.12f + mountainOffset * 1.7f);
+                float h = s.highHeight + 1 + t * (s.mountainHeight * (0.3f + 0.7f * ridge)) + peaks * 3f;
+                height[i] = math.clamp((int)math.round(h), s.highHeight + 1, sy - 3);
+            }
+        }
+
         // ---------- 7. Коридоры: от ворот к воротам противника и к каждой точке захвата ----------
 
         void BuildCorridors()
@@ -1034,6 +1121,48 @@ public static class ArenaLayoutGenerator
                     Mark(c, occupied);
                 }
             }
+
+            PlaceMountainTrees(layout, forest, density);
+        }
+
+        // Пологий склон: соседи отличаются по высоте не больше чем на блок
+        bool Gentle(int x, int z)
+        {
+            int h = height[Idx(x, z)];
+            for (int dz = -1; dz <= 1; dz++)
+                for (int dx = -1; dx <= 1; dx++)
+                    if (!Inside(x + dx, z + dz) || math.abs(height[Idx(x + dx, z + dz)] - h) > 1)
+                        return false;
+            return true;
+        }
+
+        // Лес на нижних пологих склонах гор. Горы непроходимы, симметрия тут не нужна.
+        void PlaceMountainTrees(ArenaLayout layout, float[] forest, float density)
+        {
+            var taken = new bool[n];
+            for (int i = 0; i < n; i++)
+            {
+                if (!border[i] || mountainDepth[i] < 2 || mountainDepth[i] > 10)
+                    continue;
+                if (forest[i] < s.forestThreshold - 0.1f || rnd.NextDouble() > density * 0.35)
+                    continue;
+
+                int x = i % sx, z = i / sx;
+                if (!Gentle(x, z))
+                    continue;
+
+                bool free = true;
+                for (int dz = -2; dz <= 2 && free; dz++)
+                    for (int dx = -2; dx <= 2 && free; dx++)
+                        free = Inside(x + dx, z + dz) && !taken[Idx(x + dx, z + dz)];
+                if (!free)
+                    continue;
+
+                layout.trees.Add(new int2(x, z));
+                for (int dz = -2; dz <= 2; dz++)
+                    for (int dx = -2; dx <= 2; dx++)
+                        taken[Idx(x + dx, z + dz)] = true;
+            }
         }
 
         // Дерево или камень занимает квадрат 5x5
@@ -1095,12 +1224,10 @@ public static class ArenaLayoutGenerator
 
                     if (border[i])
                     {
-                        // Горы: круче к краю, неровные сверху
-                        int depth = s.borderWidth - EdgeDistance(x, z);
-                        float bump = noise.snoise(new float2(x, z) * 0.08f + mountainOffset) * 4f;
-                        int h = s.highHeight + 3 + (int)(depth * s.borderSlope + bump);
-                        layout.height[i] = math.clamp(h, s.highHeight + 1, sy - 2);
+                        layout.height[i] = height[i];
                         flags |= ArenaLayout.FlagRock;
+                        if (Gentle(x, z))
+                            flags |= ArenaLayout.FlagSoftTop;
                     }
                     else if (water[i])
                     {

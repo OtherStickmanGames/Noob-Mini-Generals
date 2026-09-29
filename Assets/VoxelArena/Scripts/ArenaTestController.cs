@@ -77,9 +77,21 @@ public class ArenaTestController : MonoBehaviour
             FocusOwnBase();
     }
 
+    // Туман в цвет неба биома: дальний край карты растворяется, а не обрывается
+    void ApplyFog()
+    {
+        var color = ArenaBiomes.FogColor(arena.Biome);
+        RenderSettings.fog = true;
+        RenderSettings.fogMode = FogMode.Linear;
+        RenderSettings.fogColor = color;
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = color;
+    }
+
     // Своя база внизу экрана, противник — вверху
     void FocusOwnBase()
     {
+        ApplyFog();
         var axis = arena.Layout.baseAxis;
         yaw = Mathf.Atan2(axis.x, axis.y) * Mathf.Rad2Deg;
         pivot = arena.BaseOne + new Vector3(axis.x, 0f, axis.y) * 20f;
@@ -140,6 +152,10 @@ public class ArenaTestController : MonoBehaviour
     {
         var rotation = Quaternion.Euler(pitch, yaw, 0f);
         cam.transform.SetPositionAndRotation(pivot - rotation * Vector3.forward * distance, rotation);
+
+        // Туман начинается за точкой, куда смотрит камера, и зависит от зума
+        RenderSettings.fogStartDistance = distance * 1.2f;
+        RenderSettings.fogEndDistance = distance * 2.8f;
     }
 
     void HandlePointer()
@@ -240,7 +256,7 @@ public class ArenaTestController : MonoBehaviour
 
     void ClampPivot()
     {
-        var bounds = arena.WorldBounds;
+        var bounds = arena.PlayableBounds;
         pivot.x = Mathf.Clamp(pivot.x, bounds.min.x, bounds.max.x);
         pivot.z = Mathf.Clamp(pivot.z, bounds.min.z, bounds.max.z);
     }

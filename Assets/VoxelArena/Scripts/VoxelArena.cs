@@ -20,9 +20,9 @@ public class VoxelArena : MonoBehaviour
     static readonly int VoxelSizeId = Shader.PropertyToID("_VoxelSize");
 
     [SerializeField] Material material;
-    [SerializeField] int sizeX = 256;
+    [SerializeField] int sizeX = 400;
     [SerializeField] int sizeY = 48;
-    [SerializeField] int sizeZ = 256;
+    [SerializeField] int sizeZ = 400;
     [SerializeField] float voxelSize = 0.5f;
     [SerializeField] ArenaGenSettings generation = ArenaGenSettings.Default;
 
@@ -46,6 +46,18 @@ public class VoxelArena : MonoBehaviour
     {
         get => generation.seed;
         set => generation.seed = value;
+    }
+
+    /// <summary>Мировая коробка без гор по краю: камере дальше смотреть незачем</summary>
+    public Bounds PlayableBounds
+    {
+        get
+        {
+            var bounds = WorldBounds;
+            float inset = generation.borderMinWidth * voxelSize;
+            bounds.Expand(new Vector3(-inset * 2f, 0f, -inset * 2f));
+            return bounds;
+        }
     }
 
     public Bounds WorldBounds
@@ -176,6 +188,7 @@ public class VoxelArena : MonoBehaviour
         new ArenaGenerateJob
         {
             dims = dims,
+            snowLine = ArenaBiomes.SnowLine(Biome, generation.highHeight),
             height = height,
             waterTop = waterTop,
             flags = flags,

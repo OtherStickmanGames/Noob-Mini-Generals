@@ -41,6 +41,18 @@ public static class ArenaBiomes
         _ => "пустыня",
     };
 
+    /// <summary>С какой высоты вершины гор под снегом</summary>
+    public static int SnowLine(ArenaBiome biome, int highHeight) =>
+        biome == ArenaBiome.Winter ? highHeight + 3 : highHeight + 15;
+
+    public static Color FogColor(ArenaBiome biome) => biome switch
+    {
+        ArenaBiome.Summer => new Color32(170, 200, 226, 255),
+        ArenaBiome.Autumn => new Color32(200, 186, 162, 255),
+        ArenaBiome.Winter => new Color32(212, 222, 234, 255),
+        _ => new Color32(226, 206, 170, 255),
+    };
+
     // Множители к настройкам генерации
     public static float WaterThresholdBonus(ArenaBiome biome) => biome == ArenaBiome.Desert ? 0.12f : 0f;
     public static float ForestDensityScale(ArenaBiome biome) => biome == ArenaBiome.Desert ? 0.25f : 1f;

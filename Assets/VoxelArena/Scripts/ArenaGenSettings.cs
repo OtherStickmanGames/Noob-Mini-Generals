@@ -9,16 +9,21 @@ public struct ArenaGenSettings
 {
     // Меняется, когда в настройках появляются новые поля:
     // сцена со старой версией получает значения по умолчанию
-    public const int CurrentVersion = 4;
+    public const int CurrentVersion = 7;
 
     [HideInInspector] public int version;
     public int seed;
     public ArenaBiomeChoice biome;
 
     [Header("Горы по краю карты")]
-    public int borderWidth;
-    [Tooltip("На сколько блоков горы растут на клетку ближе к краю")]
-    public float borderSlope;
+    [Tooltip("Ширина гор меняется по шуму от минимума до максимума — край неровный")]
+    public int borderMinWidth;
+    public int borderMaxWidth;
+    public float borderNoiseScale;
+    [Tooltip("За сколько клеток от подножия горы набирают полную высоту")]
+    public int mountainRise;
+    [Tooltip("Высота гор над верхним уровнем, в блоках")]
+    public int mountainHeight;
 
     [Header("Уровни высоты")]
     public int lowHeight;
@@ -39,6 +44,8 @@ public struct ArenaGenSettings
     public int gateWidth;
     [Tooltip("Ровный отступ вокруг стен 3-го уровня")]
     public int basePadding;
+    [Tooltip("Сколько клеток поля остаётся за базой до гор")]
+    public int baseBackSpace;
 
     [Header("Рампы")]
     public int rampWidth;
@@ -60,8 +67,11 @@ public struct ArenaGenSettings
         version = CurrentVersion,
         seed = 1,
         biome = ArenaBiomeChoice.BySeed,
-        borderWidth = 14,
-        borderSlope = 1.2f,
+        borderMinWidth = 8,
+        borderMaxWidth = 44,
+        borderNoiseScale = 0.022f,
+        mountainRise = 12,
+        mountainHeight = 20,
         lowHeight = 6,
         midHeight = 10,
         highHeight = 15,
@@ -76,6 +86,7 @@ public struct ArenaGenSettings
         wallHeight = 4,
         gateWidth = 4,
         basePadding = 4,
+        baseBackSpace = 50,
         rampWidth = 5,
         extraRampChance = 0.35f,
         waterNoiseScale = 0.03f,

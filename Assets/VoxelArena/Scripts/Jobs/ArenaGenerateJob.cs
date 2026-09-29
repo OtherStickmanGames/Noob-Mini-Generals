@@ -10,6 +10,8 @@ using Unity.Mathematics;
 public struct ArenaGenerateJob : IJobParallelFor
 {
     public int3 dims;
+    // С этой высоты верх гор покрыт снегом
+    public int snowLine;
 
     [ReadOnly] public NativeArray<int> height;
     [ReadOnly] public NativeArray<int> waterTop;
@@ -25,6 +27,7 @@ public struct ArenaGenerateJob : IJobParallelFor
         bool sand = (flags[column] & ArenaLayout.FlagSand) != 0;
         bool cliff = (flags[column] & ArenaLayout.FlagCliff) != 0;
         bool rock = (flags[column] & ArenaLayout.FlagRock) != 0;
+        bool softTop = (flags[column] & ArenaLayout.FlagSoftTop) != 0;
         int top = h - 1;
         int layer = dims.x * dims.z;
 
@@ -36,7 +39,14 @@ public struct ArenaGenerateJob : IJobParallelFor
             else if (y < h)
             {
                 if (rock)
-                    block = VoxelBlocks.Stone;
+                {
+                    if (y == top && top >= snowLine)
+                        block = VoxelBlocks.Snow;
+                    else if (y == top && softTop)
+                        block = VoxelBlocks.Grass;
+                    else
+                        block = VoxelBlocks.Stone;
+                }
                 else if (y == top)
                     block = sand ? VoxelBlocks.Sand : VoxelBlocks.Grass;
                 else if (cliff)
