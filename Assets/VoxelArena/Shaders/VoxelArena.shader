@@ -114,6 +114,8 @@ Shader "NoobGenerals/VoxelArena"
             #pragma vertex vert
             #pragma fragment frag
 
+            // Shadows.hlsl использует LerpWhiteTo из CommonMaterial.hlsl, но сам его не подключает
+            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/CommonMaterial.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadows.hlsl"
 
             float3 _LightDirection;
