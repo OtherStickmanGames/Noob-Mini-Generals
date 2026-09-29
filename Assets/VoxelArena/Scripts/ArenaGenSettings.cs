@@ -9,7 +9,7 @@ public struct ArenaGenSettings
 {
     // Меняется, когда в настройках появляются новые поля:
     // сцена со старой версией получает значения по умолчанию
-    public const int CurrentVersion = 7;
+    public const int CurrentVersion = 8;
 
     [HideInInspector] public int version;
     public int seed;
@@ -79,9 +79,9 @@ public struct ArenaGenSettings
         highShare = 0.24f,
         levelNoiseScale = 0.02f,
         minRegionCells = 90,
-        wallLevel1Size = 24,
-        wallLevel2Size = 36,
-        wallLevel3Size = 48,
+        wallLevel1Size = 32,
+        wallLevel2Size = 44,
+        wallLevel3Size = 56,
         wallThickness = 2,
         wallHeight = 4,
         gateWidth = 4,
