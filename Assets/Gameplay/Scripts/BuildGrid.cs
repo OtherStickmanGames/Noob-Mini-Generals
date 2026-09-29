@@ -11,7 +11,7 @@ namespace Generals
         readonly ArenaLayout layout;
         readonly int sx, sz;
         readonly bool[] occupied;
-        // Клетки месторождений и точек захвата (3x3) — на них можно ставить только шахту
+        // Клетки точек захвата (3x3) — на них можно ставить только шахту
         readonly bool[] depositCells;
 
         public BuildGrid(VoxelArena arena)
@@ -76,7 +76,7 @@ namespace Generals
                     int i = Idx(x, z);
                     if (depositCells[i])
                     {
-                        reason = "Здесь месторождение — только для шахты";
+                        reason = "Здесь точка захвата — только для шахты";
                         return false;
                     }
 
@@ -122,51 +122,30 @@ namespace Generals
             return team == faction.team && level <= faction.wallLevel;
         }
 
-        // Шахта: центр — на месторождении своей базы (внутри открытых стен) или на своей точке захвата
+        // Шахта: центр — на своей точке захвата, где ещё нет шахты
         bool CanPlaceMine(Faction faction, StructureDef def, int2 min, out string reason, out CapturePoint capturePoint)
         {
             capturePoint = null;
-            var center = min + def.footprint / 2;
-
-            foreach (var r in layout.resources)
+            var point = MatchManager.Instance.CapturePointAt(min + def.footprint / 2);
+            if (point == null)
             {
-                if (!r.cell.Equals(center))
-                    continue;
-
-                if (r.kind == ResourceKind.BaseDeposit)
-                {
-                    if (r.team != faction.team)
-                    {
-                        reason = "Это месторождение противника";
-                        return false;
-                    }
-                    if (r.wallLevel > faction.wallLevel)
-                    {
-                        reason = $"Откроется со стенами {r.wallLevel}-го уровня";
-                        return false;
-                    }
-                    reason = null;
-                    return true;
-                }
-
-                var point = MatchManager.Instance.CapturePointAt(center);
-                if (point == null || point.Owner != faction.team)
-                {
-                    reason = "Сначала захватите точку";
-                    return false;
-                }
-                if (point.Mine != null)
-                {
-                    reason = "На точке уже есть шахта";
-                    return false;
-                }
-                capturePoint = point;
-                reason = null;
-                return true;
+                reason = "Шахта ставится на точку захвата";
+                return false;
+            }
+            if (point.Owner != faction.team)
+            {
+                reason = "Сначала захватите точку";
+                return false;
+            }
+            if (point.Mine != null)
+            {
+                reason = "На точке уже есть шахта";
+                return false;
             }
 
-            reason = "Шахта ставится на месторождение или захваченную точку";
-            return false;
+            capturePoint = point;
+            reason = null;
+            return true;
         }
 
         /// <summary>
@@ -193,7 +172,7 @@ namespace Generals
             return false;
         }
 
-        /// <summary>Центр ближайшего к клетке месторождения или точки захвата в радиусе — для подсказки при установке</summary>
+        /// <summary>Центр ближайшей к клетке точки захвата в радиусе — для подсказки при установке</summary>
         public bool SnapToResource(int2 cell, int radius, out int2 center)
         {
             center = cell;

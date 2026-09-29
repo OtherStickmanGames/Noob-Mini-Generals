@@ -225,7 +225,7 @@ namespace Generals
 
         int2 FindInitialSpot(StructureDef def, int2 center)
         {
-            // Шахта — на ближайшее доступное месторождение или свою точку
+            // Шахта — на ближайшую свою точку захвата
             if (def.rule == PlacementRule.Deposit)
             {
                 int2 best = BuildGrid.MinFromCenter(def, center);
@@ -273,7 +273,7 @@ namespace Generals
 
         void SetGhostMin(int2 min)
         {
-            // Шахта прилипает к ближайшему месторождению или точке
+            // Шахта прилипает к ближайшей точке захвата
             if (placingDef.rule == PlacementRule.Deposit &&
                 Match.Grid.SnapToResource(min + placingDef.footprint / 2, 4, out var resource))
                 min = BuildGrid.MinFromCenter(placingDef, resource);
@@ -400,9 +400,9 @@ namespace Generals
             }
             else if (selected.Def.type == StructureType.Mine)
             {
-                selectionInfo.text = selected.CapturePoint == null
-                    ? "Добывает ценный ресурс с месторождения"
-                    : selected.CapturePoint.Owner == Player.team ? "Добывает ценный ресурс с точки" : "Точка потеряна — добыча стоит";
+                selectionInfo.text = selected.CapturePoint.Owner == Player.team
+                    ? "Добывает ценный ресурс"
+                    : "Точка потеряна — добыча стоит";
             }
             else
             {

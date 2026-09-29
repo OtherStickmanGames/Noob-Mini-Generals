@@ -118,10 +118,8 @@ namespace Generals
                     break;
 
                 case StructureType.Mine:
-                    if (CapturePoint == null)
-                        Faction.valuable += StructureCatalog.MineDepositIncome * dt;
-                    else if (CapturePoint.Owner == Faction.team)
-                        Faction.valuable += StructureCatalog.MineCaptureIncome * dt;
+                    if (CapturePoint.Owner == Faction.team)
+                        Faction.valuable += StructureCatalog.MineIncome * dt;
                     break;
             }
         }

@@ -5,9 +5,7 @@ using UnityEngine;
 
 public enum ResourceKind
 {
-    /// <summary>Месторождение базового ресурса внутри стен</summary>
-    BaseDeposit,
-    /// <summary>Точка захвата с ценным ресурсом в поле</summary>
+    /// <summary>Точка захвата с ценным ресурсом в поле (внутри стен источников нет)</summary>
     CapturePoint,
 }
 
@@ -15,8 +13,6 @@ public struct ResourcePoint
 {
     public int2 cell;
     public ResourceKind kind;
-    /// <summary>Для месторождений — уровень стен, внутри которого оно лежит (1..3)</summary>
-    public int wallLevel;
     /// <summary>0 — база один, 1 — база два, -1 — ничья (точка захвата)</summary>
     public int team;
 }
@@ -471,7 +467,7 @@ public static class ArenaLayoutGenerator
             }
         }
 
-        // ---------- 4. База: стены, ворота, месторождения ----------
+        // ---------- 4. База: стены и ворота ----------
 
         void PlaceBaseContent()
         {
@@ -503,28 +499,12 @@ public static class ArenaLayoutGenerator
 
             gateOutA = baseA + Rotate(new int2(0, h + t));
             gateOutB = Mirror(gateOutA);
-
-            // Месторождения базового ресурса: по два внутри каждого уровня стен.
-            // Бугор 3x3 не налезает на стены ни одного уровня (при 24/36/48 и толщине 2).
-            AddDeposit(new int2(-8, -7), 1);
-            AddDeposit(new int2(8, -7), 1);
-            AddDeposit(new int2(-16, 5), 2);
-            AddDeposit(new int2(16, 5), 2);
-            AddDeposit(new int2(-22, -12), 3);
-            AddDeposit(new int2(22, -12), 3);
         }
 
         void AddWall(int2 cell, bool outer)
         {
             walls.Add(new WallCell { cell = cell, outer = outer });
             wallMask[Idx(cell)] = true;
-        }
-
-        void AddDeposit(int2 offset, int wallLevel)
-        {
-            var cell = baseA + Rotate(offset);
-            resources.Add(new ResourcePoint { cell = cell, kind = ResourceKind.BaseDeposit, wallLevel = wallLevel, team = 0 });
-            resources.Add(new ResourcePoint { cell = Mirror(cell), kind = ResourceKind.BaseDeposit, wallLevel = wallLevel, team = 1 });
         }
 
         // ---------- Точки захвата ----------
@@ -1281,7 +1261,7 @@ public static class ArenaLayoutGenerator
             foreach (var cell in layout.rocks)
                 MarkSquare(obstacles, cell, 2);
             foreach (var r in layout.resources)
-                MarkSquare(obstacles, r.cell, r.kind == ResourceKind.BaseDeposit ? 1 : 2);
+                MarkSquare(obstacles, r.cell, 2);
 
             var seen = Walk(gateOutA, obstacles, null);
 

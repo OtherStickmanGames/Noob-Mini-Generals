@@ -18,7 +18,7 @@ namespace Generals
         InsideWalls,
         /// <summary>На ровной площадке базы (оборонительные постройки)</summary>
         BaseArea,
-        /// <summary>Центром на месторождение своей базы или на свою точку захвата</summary>
+        /// <summary>Центром на свою точку захвата</summary>
         Deposit,
     }
 
@@ -111,8 +111,7 @@ namespace Generals
         public const float HeadquartersIncome = 1f;          // базовый ресурс в секунду
         public const float ExtractorIncome = 2f;             // базовый — с добытчика (ставится где угодно внутри стен)
         public const float CapturePointIncome = 0.5f;        // ценный — за захваченную точку
-        public const float MineDepositIncome = 1f;           // ценный — с шахты на месторождении базы
-        public const float MineCaptureIncome = 1.5f;         // ценный — с шахты на своей точке захвата
+        public const float MineIncome = 1.5f;                // ценный — с шахты на своей точке захвата
 
         public const int BuilderCost = 50;
         public const float BuilderHireTime = 8f;

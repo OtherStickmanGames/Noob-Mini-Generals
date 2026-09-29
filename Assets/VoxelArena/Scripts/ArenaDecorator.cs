@@ -51,28 +51,12 @@ public static class ArenaDecorator
             int ground = layout.height[resource.cell.y * dims.x + resource.cell.x];
             var root = new int3(resource.cell.x, ground, resource.cell.y);
 
-            if (resource.kind == ResourceKind.BaseDeposit)
-                DepositMound(writer, root);
-            else
-                CapturePoint(writer, root);
+            CapturePoint(writer, root);
         }
     }
 
     // Зубцы: два блока через два
     static bool Merlon(int2 cell) => ((cell.x + cell.y) / 2) % 2 == 0;
-
-    // Месторождение на базе: руда 3x3 вровень с землёй и бугор в центре
-    static void DepositMound(Writer w, int3 root)
-    {
-        for (int dz = -1; dz <= 1; dz++)
-            for (int dx = -1; dx <= 1; dx++)
-                w.Set(root + new int3(dx, -1, dz), GoldOre);
-
-        w.Set(root, GoldOre);
-        w.Set(root + new int3(1, 0, 0), GoldOre);
-        w.Set(root + new int3(0, 0, 1), GoldOre);
-        w.Set(root + new int3(0, 1, 0), GoldOre);
-    }
 
     // Точка захвата: светлое кольцо в земле радиусом 3 и рудный бугор в центре
     static void CapturePoint(Writer w, int3 root)
