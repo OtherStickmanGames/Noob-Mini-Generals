@@ -30,6 +30,8 @@ public struct GreedyMeshJob : IJob
 
     public NativeList<VoxelVertex> vertices;
     public NativeList<uint> indices;
+    // Только позиции — для меша коллайдера в обычном формате
+    public NativeList<float3> positions;
 
     public void Execute()
     {
@@ -149,6 +151,11 @@ public struct GreedyMeshJob : IJob
         vertices.Add(Vertex(origin + du, normal, color, ao1));
         vertices.Add(Vertex(origin + du + dv, normal, color, ao2));
         vertices.Add(Vertex(origin + dv, normal, color, ao3));
+
+        positions.Add(origin);
+        positions.Add(origin + du);
+        positions.Add(origin + du + dv);
+        positions.Add(origin + dv);
 
         // cross(eu, ev) == ed, поэтому порядок 0-1-2 смотрит в +ed.
         // Диагональ выбираем так, чтобы затенение не растекалось по всему квадрату.

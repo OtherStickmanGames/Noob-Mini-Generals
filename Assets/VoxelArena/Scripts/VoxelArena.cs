@@ -32,8 +32,6 @@ public class VoxelArena : MonoBehaviour
     [SerializeField] int sizeZ = 128;
     [SerializeField] float voxelSize = 0.5f;
     [SerializeField] ArenaGenSettings generation = ArenaGenSettings.Default;
-    [Tooltip("Готовить данные коллайдеров в рабочих потоках (Physics.BakeMesh)")]
-    [SerializeField] bool bakeCollidersInJobs = false;
 
     /// <summary>Меш чанка изменился. Mesh == null — чанк пустой.</summary>
     public event Action<int, Mesh, Matrix4x4> ChunkMeshChanged;
@@ -79,6 +77,7 @@ public class VoxelArena : MonoBehaviour
     Mesh[] meshes;
     MeshRenderer[] renderers;
     MeshCollider[] colliders;
+    Mesh[] colliderMeshes;
     int[] triangleCounts;
     bool[] dirty;
     readonly List<int> dirtyChunks = new();
@@ -119,6 +118,8 @@ public class VoxelArena : MonoBehaviour
 
         foreach (var mesh in meshes)
             Destroy(mesh);
+        foreach (var mesh in colliderMeshes)
+            Destroy(mesh);
         Destroy(paletteTexture);
     }
 
@@ -145,7 +146,6 @@ public class VoxelArena : MonoBehaviour
             MarkChunkDirty(c);
 
         RebuildDirtyChunks();
-        LogColliderCheck();
         Generated?.Invoke();
     }
 
@@ -209,43 +209,6 @@ public class VoxelArena : MonoBehaviour
         return VoxelToWorld(new float3(x + 0.5f, y + 1, z + 0.5f));
     }
 
-    // Проверка: сколько коллайдеров включено и попадает ли луч сверху в центр арены
-    void LogColliderCheck()
-    {
-        Physics.SyncTransforms();
-
-        int enabledColliders = 0;
-        int first = -1;
-        for (int c = 0; c < colliders.Length; c++)
-        {
-            if (!colliders[c].enabled)
-                continue;
-
-            enabledColliders++;
-            if (first < 0)
-                first = c;
-        }
-
-        if (first >= 0)
-        {
-            var mesh = meshes[first];
-            var subMesh = mesh.GetSubMesh(0);
-            Debug.Log($"[Arena] Первый чанк {chunkObjects[first].name}: вершин {mesh.vertexCount}, " +
-                      $"подмеш: индексов {subMesh.indexCount}, вершин {subMesh.vertexCount}, " +
-                      $"readable {mesh.isReadable}, mesh.bounds {mesh.bounds}, " +
-                      $"collider.sharedMesh {(colliders[first].sharedMesh != null ? colliders[first].sharedMesh.name : "null")}, " +
-                      $"collider.bounds {colliders[first].bounds}");
-        }
-
-        var bounds = WorldBounds;
-        var origin = new Vector3(bounds.center.x, bounds.max.y + 10f, bounds.center.z);
-        bool hit = Physics.Raycast(origin, Vector3.down, out var rayHit, bounds.size.y + 20f);
-
-        Debug.Log($"[Arena] Коллайдеров включено: {enabledColliders} из {colliders.Length}, " +
-                  $"bake в джобах: {bakeCollidersInJobs}, " +
-                  $"луч сверху в центр: {(hit ? rayHit.collider.name + " " + rayHit.point : "мимо")}");
-    }
-
     int VoxelIndex(int x, int y, int z) => (y * dims.z + z) * dims.x + x;
 
     int ChunkIndex(int3 c) => (c.y * chunkCounts.z + c.z) * chunkCounts.x + c.x;
@@ -292,6 +255,7 @@ public class VoxelArena : MonoBehaviour
         meshes = new Mesh[total];
         renderers = new MeshRenderer[total];
         colliders = new MeshCollider[total];
+        colliderMeshes = new Mesh[total];
         triangleCounts = new int[total];
         dirty = new bool[total];
 
@@ -314,13 +278,20 @@ public class VoxelArena : MonoBehaviour
             meshRenderer.sharedMaterial = material;
             meshRenderer.enabled = false;
 
+            // Коллайдеру — свой меш в обычном формате (только позиции),
+            // меш отрисовки с упакованными вершинами коллайдер не принимает
+            var colliderMesh = new Mesh { name = go.name + " Collider", indexFormat = IndexFormat.UInt32 };
+            colliderMesh.MarkDynamic();
+
             var meshCollider = go.AddComponent<MeshCollider>();
+            meshCollider.sharedMesh = null;
             meshCollider.enabled = false;
 
             chunkObjects[c] = go;
             meshes[c] = mesh;
             renderers[c] = meshRenderer;
             colliders[c] = meshCollider;
+            colliderMeshes[c] = colliderMesh;
         }
     }
 
@@ -329,6 +300,7 @@ public class VoxelArena : MonoBehaviour
         int count = dirtyChunks.Count;
         var vertexLists = new NativeList<VoxelVertex>[count];
         var indexLists = new NativeList<uint>[count];
+        var positionLists = new NativeList<float3>[count];
         var handles = new NativeArray<JobHandle>(count, Allocator.Temp);
 
         // 1. Меши во всех рабочих потоках
@@ -337,6 +309,7 @@ public class VoxelArena : MonoBehaviour
         {
             vertexLists[k] = new NativeList<VoxelVertex>(1024, Allocator.TempJob);
             indexLists[k] = new NativeList<uint>(1536, Allocator.TempJob);
+            positionLists[k] = new NativeList<float3>(1024, Allocator.TempJob);
 
             handles[k] = new GreedyMeshJob
             {
@@ -347,6 +320,7 @@ public class VoxelArena : MonoBehaviour
                 chunkSize = ChunkSize,
                 vertices = vertexLists[k],
                 indices = indexLists[k],
+                positions = positionLists[k],
             }
             .Schedule();
         }
@@ -356,42 +330,22 @@ public class VoxelArena : MonoBehaviour
 
         // 2. Загрузка в Mesh
         timer.Restart();
-        var bakeIds = new NativeList<int>(count, Allocator.TempJob);
         for (int k = 0; k < count; k++)
         {
             int chunk = dirtyChunks[k];
             ApplyMesh(chunk, vertexLists[k], indexLists[k]);
-
-            if (triangleCounts[chunk] > 0)
-                bakeIds.Add(meshes[chunk].GetInstanceID());
-
+            renderers[chunk].enabled = triangleCounts[chunk] > 0;
             vertexLists[k].Dispose();
-            indexLists[k].Dispose();
         }
         LastApplyMs = timer.Elapsed.TotalMilliseconds;
 
         // 3. Коллайдеры
         timer.Restart();
-        if (bakeCollidersInJobs)
-        {
-            new BakeCollidersJob { meshIds = bakeIds.AsArray() }
-                .Schedule(bakeIds.Length, 1)
-                .Complete();
-        }
-        bakeIds.Dispose();
-
         for (int k = 0; k < count; k++)
         {
-            int chunk = dirtyChunks[k];
-            bool hasMesh = triangleCounts[chunk] > 0;
-
-            // Переназначение заставляет коллайдер взять новые данные
-            colliders[chunk].sharedMesh = null;
-            if (hasMesh)
-                colliders[chunk].sharedMesh = meshes[chunk];
-
-            colliders[chunk].enabled = hasMesh;
-            renderers[chunk].enabled = hasMesh;
+            ApplyCollider(dirtyChunks[k], positionLists[k], indexLists[k]);
+            positionLists[k].Dispose();
+            indexLists[k].Dispose();
         }
         LastColliderMs = timer.Elapsed.TotalMilliseconds;
 
@@ -434,5 +388,37 @@ public class VoxelArena : MonoBehaviour
 
         mesh.subMeshCount = 1;
         mesh.SetSubMesh(0, new SubMeshDescriptor(0, indexCount));
+
+        // Границы задаём явно: по ним Unity решает, виден ли чанк камере
+        mesh.bounds = new Bounds(Vector3.one * (ChunkSize * 0.5f), Vector3.one * ChunkSize);
+    }
+
+    void ApplyCollider(int chunk, NativeList<float3> positions, NativeList<uint> indices)
+    {
+        var collider = colliders[chunk];
+        var mesh = colliderMeshes[chunk];
+
+        // Переназначение заставляет коллайдер взять новые данные
+        collider.sharedMesh = null;
+        mesh.Clear();
+
+        if (indices.Length == 0)
+        {
+            collider.enabled = false;
+            return;
+        }
+
+        mesh.indexFormat = IndexFormat.UInt32;
+        mesh.SetVertices(positions.AsArray());
+        mesh.SetIndices(indices.AsArray(), MeshTopology.Triangles, 0);
+
+        collider.sharedMesh = mesh;
+        collider.enabled = true;
+
+        if (collider.sharedMesh == null)
+        {
+            Debug.LogError($"[Arena] Коллайдер {collider.name} не принял меш: вершин {mesh.vertexCount}, " +
+                           $"индексов {indices.Length}, readable {mesh.isReadable}, bounds {mesh.bounds}", collider);
+        }
     }
 }

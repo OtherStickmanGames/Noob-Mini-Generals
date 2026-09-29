@@ -183,28 +183,16 @@ public class ArenaTestController : MonoBehaviour
 
     void ExplodeAt(Vector3 screenPoint)
     {
-        var ray = cam.ScreenPointToRay(screenPoint);
-        if (!Physics.Raycast(ray, out var hit, 1000f))
+        if (!RaycastArena(screenPoint, out var hit))
         {
-            lastClick = "луч ни во что не попал";
-            Debug.Log($"[Arena] Клик {screenPoint}: луч ни во что не попал");
-            return;
-        }
-
-        if (!hit.collider.transform.IsChildOf(arena.transform))
-        {
-            lastClick = $"попал не в арену: {hit.collider.name}";
-            Debug.Log($"[Arena] Клик {screenPoint}: попал не в арену: {hit.collider.name}", hit.collider);
+            lastClick = "мимо арены";
             return;
         }
 
         // Центр чуть внутри поверхности, чтобы воронка была и вглубь
         var center = hit.point - hit.normal * (arena.VoxelSize * 0.5f);
         lastRemoved = arena.Explode(center, explosionRadius);
-
-        var voxel = arena.WorldToVoxel(center);
-        lastClick = $"{hit.collider.name}, воксель {voxel.x:0},{voxel.y:0},{voxel.z:0}";
-        Debug.Log($"[Arena] Клик: {hit.collider.name}, точка {hit.point}, воксель {voxel}, выбито {lastRemoved}");
+        lastClick = hit.collider.name;
     }
 
     void Regenerate()

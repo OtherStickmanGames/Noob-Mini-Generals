@@ -29,11 +29,10 @@
 ## Файлы
 
 - `Scripts/VoxelArena.cs` — хранение (один `NativeArray<byte>` на всю арену), чанки 16³,
-  перестройка пачкой, `Explode`.
+  перестройка пачкой, `Explode`, MeshCollider чанков (отдельный меш коллайдера в обычном формате).
 - `Scripts/Jobs/ArenaGenerateJob.cs` — генерация: террасы, пологие склоны, дорога между
   базами, ровные площадки под базы. Карта симметрична поворотом на 180°.
 - `Scripts/Jobs/GreedyMeshJob.cs` — меш чанка; склеивает грани с одинаковым цветом и AO.
-- `Scripts/Jobs/BakeCollidersJob.cs` — подготовка MeshCollider в рабочих потоках.
 - `Scripts/ArenaNavMesh.cs` — один NavMesh на арену, готовый список источников, плитка
   размером с чанк.
 - `Scripts/VoxelBlocks.cs` — типы блоков и палитра (индексы 16+ оставлены под цвета команд).
