@@ -152,7 +152,6 @@ public static class ArenaLayoutGenerator
             SmoothLevels();
             RemoveSmallRegions();
             PlaceBaseContent();
-            PlaceCapturePoints();
             PlaceWater();
 
             int flattened = 0;
@@ -160,6 +159,8 @@ public static class ArenaLayoutGenerator
             for (int attempt = 0; attempt < 6 && !connected; attempt++)
                 connected = PlaceRamps(ref flattened);
 
+            // Точки захвата — после рамп: выбираются только там, куда от ворот можно дойти
+            PlaceCapturePoints();
             BuildMountains();
             BuildCorridors();
 
@@ -517,8 +518,12 @@ public static class ArenaLayoutGenerator
 
         // ---------- Точки захвата ----------
 
+        bool[] captureReach;
+
         void PlaceCapturePoints()
         {
+            captureReach = Walk(gateOutA, wallMask, null);
+
             var center = new float2((sx - 1) * 0.5f, (sz - 1) * 0.5f);
             var perp = new float2(-axis.y, axis.x);
             float size = math.min(sx, sz);
@@ -550,7 +555,7 @@ public static class ArenaLayoutGenerator
         // Ближайшая к цели клетка, вокруг которой 9x9 одного уровня и ничего не занято
         bool SnapCapturePoint(int2 target, out int2 cell)
         {
-            for (int r = 0; r < 20; r++)
+            for (int r = 0; r < 40; r++)
             {
                 for (int dz = -r; dz <= r; dz++)
                 {
@@ -559,7 +564,7 @@ public static class ArenaLayoutGenerator
                         if (math.max(math.abs(dx), math.abs(dz)) != r)
                             continue;
                         var c = target + new int2(dx, dz);
-                        if (Uniform9(c))
+                        if (CaptureSpot(c))
                         {
                             cell = c;
                             return true;
@@ -572,17 +577,21 @@ public static class ArenaLayoutGenerator
             return false;
         }
 
-        bool Uniform9(int2 c)
+        // Ровная площадка 9x9 на суше, без рамп, берега и резерва, и до неё (и до зеркальной) можно дойти
+        bool CaptureSpot(int2 c)
         {
-            if (!Inside(c))
+            if (!Inside(c) || !captureReach[Idx(c)] || !captureReach[Idx(Mirror(c))])
                 return false;
-            int l = level[Idx(c)];
+            int h = height[Idx(c)];
             for (int dz = -4; dz <= 4; dz++)
             {
                 for (int dx = -4; dx <= 4; dx++)
                 {
                     int x = c.x + dx, z = c.y + dz;
-                    if (!Inside(x, z) || level[Idx(x, z)] != l || reserved[Idx(x, z)])
+                    if (!Inside(x, z))
+                        return false;
+                    int i = Idx(x, z);
+                    if (height[i] != h || water[i] || border[i] || reserved[i] || rampMask[i] || shore[i])
                         return false;
                 }
             }
