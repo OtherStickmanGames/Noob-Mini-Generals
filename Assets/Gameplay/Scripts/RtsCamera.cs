@@ -20,6 +20,14 @@ namespace Generals
         /// <summary>Касание по миру (не по интерфейсу) в экранных координатах</summary>
         public event Action<Vector2> Tapped;
 
+        /// <summary>
+        /// Спрашивается при нажатии: если вернуть true, это нажатие тащит объект (например, здание
+        /// при установке), камера не сдвигается, а движение приходит в ObjectDragged / ObjectDragEnded.
+        /// </summary>
+        public Func<Vector2, bool> TryBeginObjectDrag;
+        public event Action<Vector2> ObjectDragged;
+        public event Action<Vector2> ObjectDragEnded;
+
         public Camera Camera { get; private set; }
 
         Vector3 pivot;
@@ -28,6 +36,7 @@ namespace Generals
 
         bool pressActive;
         bool dragging;
+        bool objectDrag;
         Vector3 pressPosition;
         Vector3 lastPointer;
         float lastPinch;
@@ -95,6 +104,7 @@ namespace Generals
             {
                 pressActive = !PointerOverUI();
                 dragging = false;
+                objectDrag = pressActive && TryBeginObjectDrag != null && TryBeginObjectDrag(pointer);
                 pressPosition = pointer;
                 lastPointer = pointer;
             }
@@ -103,16 +113,21 @@ namespace Generals
             {
                 if (!dragging && (pointer - pressPosition).magnitude > dragThresholdPixels)
                     dragging = true;
-                if (dragging)
+                if (dragging && objectDrag)
+                    ObjectDragged?.Invoke(pointer);
+                else if (dragging)
                     Pan(pointer - lastPointer);
                 lastPointer = pointer;
             }
 
             if (pressActive && Input.GetMouseButtonUp(0))
             {
-                if (!dragging)
+                if (objectDrag && dragging)
+                    ObjectDragEnded?.Invoke(pointer);
+                else if (!dragging)
                     Tapped?.Invoke(pointer);
                 pressActive = false;
+                objectDrag = false;
             }
 
             float scroll = Input.mouseScrollDelta.y;

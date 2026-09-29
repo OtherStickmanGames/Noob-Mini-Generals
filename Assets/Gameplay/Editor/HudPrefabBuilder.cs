@@ -17,6 +17,7 @@ namespace Generals.EditorTools
         static readonly Color PanelColor = new(0.08f, 0.09f, 0.11f, 0.82f);
         static readonly Color ButtonColor = new(0.22f, 0.25f, 0.30f, 1f);
         static readonly Color AccentColor = new(0.24f, 0.52f, 0.28f, 1f);
+        static readonly Color CancelColor = new(0.62f, 0.2f, 0.18f, 1f);
 
 
         [MenuItem("Tools/Voxel Arena/Rebuild HUD Prefab")]
@@ -74,12 +75,17 @@ namespace Generals.EditorTools
             var template = MakeButton(menu, "Build Button Template", "Здание · 100", new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(0f, 100f), ButtonColor);
             template.gameObject.AddComponent<LayoutElement>().preferredHeight = 100f;
 
-            // Установка здания
-            var bar = MakePanel(t, "Placement Bar", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 30f), new Vector2(1000f, 210f), PanelColor);
-            var hint = MakePanel(bar, "Hint", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, 80f), Color.clear);
-            var placementHint = MakeLabel(hint, "Коснитесь земли, чтобы выбрать место", 32, TextAlignmentOptions.Center);
-            var confirm = MakeButton(bar, "Confirm", "Поставить", new Vector2(0.5f, 0f), new Vector2(-235f, 20f), new Vector2(430f, 100f), AccentColor);
-            var cancel = MakeButton(bar, "Cancel", "Отмена", new Vector2(0.5f, 0f), new Vector2(235f, 20f), new Vector2(430f, 100f), ButtonColor);
+            // Установка здания: строка подсказки под ресурсами и кнопки, которые висят над зданием
+            var hintPanel = MakePanel(t, "Placement Hint", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -80f), new Vector2(900f, 64f), PanelColor);
+            var placementHint = MakeLabel(hintPanel, "Казармы · 150", 32, TextAlignmentOptions.Center);
+
+            var buttons = new GameObject("Placement Buttons", typeof(RectTransform)).GetComponent<RectTransform>();
+            buttons.SetParent(t, false);
+            buttons.anchorMin = buttons.anchorMax = Vector2.zero;
+            buttons.pivot = new Vector2(0.5f, 0f);
+            buttons.sizeDelta = new Vector2(440f, 100f);
+            var confirm = MakeButton(buttons, "Confirm", "Строить", new Vector2(0f, 0f), Vector2.zero, new Vector2(210f, 100f), AccentColor);
+            var cancel = MakeButton(buttons, "Cancel", "Отмена", new Vector2(1f, 0f), Vector2.zero, new Vector2(210f, 100f), CancelColor);
 
             // Панель выбранного здания
             var selection = MakePanel(t, "Selection", Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(30f, 30f), new Vector2(640f, 300f), PanelColor);
@@ -97,10 +103,11 @@ namespace Generals.EditorTools
             so.FindProperty("buildMenu").objectReferenceValue = menu.gameObject;
             so.FindProperty("buildMenuContent").objectReferenceValue = menu;
             so.FindProperty("buildButtonTemplate").objectReferenceValue = template;
-            so.FindProperty("placementBar").objectReferenceValue = bar.gameObject;
-            so.FindProperty("placementHint").objectReferenceValue = placementHint;
+            so.FindProperty("placementButtons").objectReferenceValue = buttons;
             so.FindProperty("confirmButton").objectReferenceValue = confirm;
             so.FindProperty("cancelButton").objectReferenceValue = cancel;
+            so.FindProperty("placementHintPanel").objectReferenceValue = hintPanel.gameObject;
+            so.FindProperty("placementHint").objectReferenceValue = placementHint;
             so.FindProperty("selectionPanel").objectReferenceValue = selection.gameObject;
             so.FindProperty("selectionTitle").objectReferenceValue = selectionTitle;
             so.FindProperty("selectionInfo").objectReferenceValue = selectionInfo;

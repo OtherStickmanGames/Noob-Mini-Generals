@@ -27,10 +27,13 @@ namespace Generals
         [SerializeField] Button buildButtonTemplate;
 
         [Header("Установка")]
-        [SerializeField] GameObject placementBar;
-        [SerializeField] TMP_Text placementHint;
+        [Tooltip("Кнопки «Строить / Отмена», которые висят над зданием при установке")]
+        [SerializeField] RectTransform placementButtons;
         [SerializeField] Button confirmButton;
         [SerializeField] Button cancelButton;
+        [Tooltip("Строка под ресурсами: название и цена или почему здесь нельзя")]
+        [SerializeField] GameObject placementHintPanel;
+        [SerializeField] TMP_Text placementHint;
 
         [Header("Выбранное здание")]
         [SerializeField] GameObject selectionPanel;
@@ -53,8 +56,10 @@ namespace Generals
         int2 placingMin;
         bool placingValid;
         bool placingHasCell;
+        int2 grabOffset;
         GameObject ghost;
         Renderer ghostSlab;
+        float ghostHeight;
 
         MatchManager Match => MatchManager.Instance;
         Faction Player => Match.Player;
@@ -62,6 +67,9 @@ namespace Generals
         void Awake()
         {
             rtsCamera.Tapped += Camera_Tapped;
+            rtsCamera.TryBeginObjectDrag = TryGrabGhost;
+            rtsCamera.ObjectDragged += Ghost_Dragged;
+            rtsCamera.ObjectDragEnded += Ghost_Dragged;
 
             buildToggle.onClick.AddListener(() =>
             {
@@ -88,7 +96,8 @@ namespace Generals
             }
 
             buildMenu.SetActive(false);
-            placementBar.SetActive(false);
+            placementButtons.gameObject.SetActive(false);
+            placementHintPanel.SetActive(false);
             selectionPanel.SetActive(false);
             toastText.enabled = false;
         }
@@ -96,6 +105,9 @@ namespace Generals
         void OnDestroy()
         {
             rtsCamera.Tapped -= Camera_Tapped;
+            rtsCamera.ObjectDragged -= Ghost_Dragged;
+            rtsCamera.ObjectDragEnded -= Ghost_Dragged;
+            rtsCamera.TryBeginObjectDrag = null;
         }
 
         void Update()
@@ -110,6 +122,9 @@ namespace Generals
                 button.interactable = Player.CanAfford(def.costBase, def.costValuable);
 
             UpdateSelection();
+
+            if (placingDef != null && (Input.GetKeyDown(KeyCode.Escape) || Input.GetMouseButtonDown(1)))
+                CancelPlacing();
 
             if (toastTimer > 0f)
             {
@@ -148,8 +163,9 @@ namespace Generals
 
             if (placingDef != null)
             {
+                // Тап по земле переносит здание сюда
                 if (RaycastTerrain(screen, out var hit))
-                    MoveGhost(hit);
+                    SetGhostMin(BuildGrid.MinFromCenter(placingDef, CellAt(hit)));
                 return;
             }
 
@@ -177,6 +193,13 @@ namespace Generals
 
         // ---------- Установка здания ----------
 
+        int2 CellAt(RaycastHit hit)
+        {
+            float3 voxel = Match.Arena.WorldToVoxel(hit.point - hit.normal * 0.05f);
+            return new int2((int)math.floor(voxel.x), (int)math.floor(voxel.z));
+        }
+
+        // Выбрал здание — оно сразу стоит на ближайшем подходящем месте, дальше его можно тащить
         void StartPlacing(StructureDef def)
         {
             CancelPlacing();
@@ -188,28 +211,87 @@ namespace Generals
             placingValid = false;
             CreateGhost(def);
 
-            placementBar.SetActive(true);
-            placementHint.text = def.rule == PlacementRule.Deposit
-                ? $"{def.name}: коснитесь месторождения или своей точки захвата"
-                : $"{def.name}: коснитесь земли, чтобы выбрать место";
-            confirmButton.interactable = false;
+            placementButtons.gameObject.SetActive(true);
+            placementHintPanel.SetActive(true);
 
-            // Сразу пробуем поставить в центр экрана
+            var center = Player.headquarters != null
+                ? Player.headquarters.MinCell + Player.headquarters.Def.footprint / 2
+                : int2.zero;
             if (RaycastTerrain(new Vector2(Screen.width, Screen.height) * 0.5f, out var hit))
-                MoveGhost(hit);
+                center = CellAt(hit);
+
+            SetGhostMin(FindInitialSpot(def, center));
         }
 
-        void MoveGhost(RaycastHit hit)
+        int2 FindInitialSpot(StructureDef def, int2 center)
         {
-            var arena = Match.Arena;
-            float3 voxel = arena.WorldToVoxel(hit.point - hit.normal * 0.05f);
-            var cell = new int2((int)math.floor(voxel.x), (int)math.floor(voxel.z));
+            // Добытчик — на ближайшее доступное месторождение или свою точку
+            if (def.rule == PlacementRule.Deposit)
+            {
+                int2 best = BuildGrid.MinFromCenter(def, center);
+                int bestDistance = int.MaxValue;
+                foreach (var r in Match.Arena.Layout.resources)
+                {
+                    var min = BuildGrid.MinFromCenter(def, r.cell);
+                    if (!Match.Grid.CanPlace(Player, def, min, out _, out _))
+                        continue;
+                    int d = math.lengthsq(r.cell - center);
+                    if (d < bestDistance)
+                    {
+                        bestDistance = d;
+                        best = min;
+                    }
+                }
+                return best;
+            }
 
+            // Остальное — первая подходящая клетка по расходящимся квадратам от центра
+            var start = BuildGrid.MinFromCenter(def, center);
+            for (int r = 0; r <= 20; r++)
+            {
+                for (int dz = -r; dz <= r; dz++)
+                {
+                    for (int dx = -r; dx <= r; dx++)
+                    {
+                        if (math.max(math.abs(dx), math.abs(dz)) != r)
+                            continue;
+                        var min = start + new int2(dx, dz);
+                        if (Match.Grid.CanPlace(Player, def, min, out _, out _))
+                            return min;
+                    }
+                }
+            }
+            return start;
+        }
+
+        // Нажатие на здание (или рядом, на клетку) при установке — начинаем его тащить
+        bool TryGrabGhost(Vector2 screen)
+        {
+            if (placingDef == null || !placingHasCell || !RaycastTerrain(screen, out var hit))
+                return false;
+
+            var cell = CellAt(hit);
+            var local = cell - placingMin;
+            bool inside = local.x >= -1 && local.y >= -1 && local.x <= placingDef.footprint.x && local.y <= placingDef.footprint.y;
+            if (inside)
+                grabOffset = local;
+            return inside;
+        }
+
+        void Ghost_Dragged(Vector2 screen)
+        {
+            if (placingDef != null && RaycastTerrain(screen, out var hit))
+                SetGhostMin(CellAt(hit) - grabOffset);
+        }
+
+        void SetGhostMin(int2 min)
+        {
             // Добытчик прилипает к ближайшему месторождению или точке
-            if (placingDef.rule == PlacementRule.Deposit && Match.Grid.SnapToResource(cell, 4, out var resource))
-                cell = resource;
+            if (placingDef.rule == PlacementRule.Deposit &&
+                Match.Grid.SnapToResource(min + placingDef.footprint / 2, 4, out var resource))
+                min = BuildGrid.MinFromCenter(placingDef, resource);
 
-            placingMin = BuildGrid.MinFromCenter(placingDef, cell);
+            placingMin = min;
             placingHasCell = true;
             placingValid = Match.Grid.CanPlace(Player, placingDef, placingMin, out var reason, out _);
 
@@ -219,9 +301,24 @@ namespace Generals
 
             bool affordable = Player.CanAfford(placingDef.costBase, placingDef.costValuable);
             confirmButton.interactable = placingValid && affordable;
-            placementHint.text = placingValid
-                ? affordable ? $"{placingDef.name}: {Cost(placingDef)}" : "Не хватает ресурсов"
-                : reason;
+            placementHint.text = !placingValid ? reason
+                : affordable ? $"{placingDef.name} · {Cost(placingDef)}"
+                : "Не хватает ресурсов";
+        }
+
+        // Кнопки едут над зданием
+        void LateUpdate()
+        {
+            if (placingDef == null || ghost == null || !ghost.activeSelf)
+                return;
+
+            var top = ghost.transform.position + Vector3.up * (ghostHeight + 0.6f);
+            var screen = rtsCamera.Camera.WorldToScreenPoint(top);
+            bool visible = screen.z > 0f;
+            if (placementButtons.gameObject.activeSelf != visible)
+                placementButtons.gameObject.SetActive(visible);
+            if (visible)
+                placementButtons.position = screen;
         }
 
         void ConfirmPlacing()
@@ -243,7 +340,8 @@ namespace Generals
         void CancelPlacing()
         {
             placingDef = null;
-            placementBar.SetActive(false);
+            placementButtons.gameObject.SetActive(false);
+            placementHintPanel.SetActive(false);
             if (ghost != null)
                 Destroy(ghost);
             ghost = null;
@@ -262,6 +360,7 @@ namespace Generals
             model.transform.localPosition = new Vector3(-size.x, 0f, -size.z) * (VoxelModels.VoxelSize * 0.5f);
             model.AddComponent<MeshFilter>().sharedMesh = mesh;
             model.AddComponent<MeshRenderer>().sharedMaterial = Match.Arena.Material;
+            ghostHeight = size.y * VoxelModels.VoxelSize;
 
             // Цветная плита под зданием: зелёная — можно, красная — нельзя
             var slab = GameObject.CreatePrimitive(PrimitiveType.Cube);
