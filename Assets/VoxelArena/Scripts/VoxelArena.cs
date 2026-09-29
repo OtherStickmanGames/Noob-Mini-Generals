@@ -6,6 +6,7 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Rendering;
+using Debug = UnityEngine.Debug;
 
 /// <summary>
 /// Воксельная арена фиксированного размера. Все воксели лежат в одном массиве,
