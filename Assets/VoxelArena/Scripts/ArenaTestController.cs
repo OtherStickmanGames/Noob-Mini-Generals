@@ -57,7 +57,11 @@ public class ArenaTestController : MonoBehaviour
         maxDistance = Mathf.Max(bounds.size.x, bounds.size.z) * 1.2f;
         minDistance = 4f;
         cam.farClipPlane = Mathf.Max(cam.farClipPlane, maxDistance * 3f);
-        FocusOwnBase();
+
+        // Порядок Start у компонентов не задан: если арена ещё не сгенерирована,
+        // камеру наведёт событие Generated
+        if (arena.Layout != null)
+            FocusOwnBase();
     }
 
     void OnDestroy()
