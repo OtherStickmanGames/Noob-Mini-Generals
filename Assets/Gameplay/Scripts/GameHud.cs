@@ -235,7 +235,8 @@ namespace Generals
                     var min = BuildGrid.MinFromCenter(def, r.cell);
                     if (!Match.Grid.CanPlace(Player, def, min, out _, out _))
                         continue;
-                    int d = math.lengthsq(r.cell - center);
+                    var delta = r.cell - center;
+                    int d = delta.x * delta.x + delta.y * delta.y;
                     if (d < bestDistance)
                     {
                         bestDistance = d;
