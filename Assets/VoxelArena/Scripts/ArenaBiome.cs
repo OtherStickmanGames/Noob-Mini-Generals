@@ -66,6 +66,11 @@ public static class ArenaBiomes
         p[SlotIronOre] = new Color32(170, 108, 88, 255);
         p[SlotSnow] = new Color32(242, 246, 250, 255);
         p[SlotMarker] = new Color32(232, 232, 226, 255);
+        p[SlotTeamOne] = new Color32(58, 110, 214, 255);
+        p[SlotTeamOneDark] = new Color32(34, 62, 128, 255);
+        p[SlotTeamTwo] = new Color32(208, 58, 48, 255);
+        p[SlotTeamTwoDark] = new Color32(118, 32, 28, 255);
+        p[SlotMetal] = new Color32(118, 124, 132, 255);
         p[SlotWallTop] = new Color32(152, 148, 142, 255);
         p[SlotWallSide] = new Color32(122, 118, 112, 255);
 

@@ -22,7 +22,13 @@ public static class VoxelBlocks
     public const byte IronOre = 12;
     public const byte Wall = 13;
     public const byte Marker = 14;
-    public const int Count = 15;
+    // Блоки моделей зданий и юнитов
+    public const byte TeamOne = 15;
+    public const byte TeamTwo = 16;
+    public const byte TeamOneDark = 17;
+    public const byte TeamTwoDark = 18;
+    public const byte Metal = 19;
+    public const int Count = 20;
 
     public const int FaceTop = 0;
     public const int FaceSide = 1;
@@ -46,7 +52,12 @@ public static class VoxelBlocks
     public const byte SlotWallTop = 15;
     public const byte SlotWallSide = 16;
     public const byte SlotMarker = 17;
-    public const int SlotCount = 18;
+    public const byte SlotTeamOne = 32;
+    public const byte SlotTeamTwo = 33;
+    public const byte SlotTeamOneDark = 34;
+    public const byte SlotTeamTwoDark = 35;
+    public const byte SlotMetal = 36;
+    public const int SlotCount = 40;
 
     // top, side, bottom
     static readonly byte[,] faces =
@@ -66,7 +77,15 @@ public static class VoxelBlocks
         { SlotIronOre, SlotIronOre, SlotIronOre },          // IronOre
         { SlotWallTop, SlotWallSide, SlotWallSide },        // Wall
         { SlotMarker, SlotMarker, SlotMarker },             // Marker
+        { SlotTeamOne, SlotTeamOne, SlotTeamOne },          // TeamOne
+        { SlotTeamTwo, SlotTeamTwo, SlotTeamTwo },          // TeamTwo
+        { SlotTeamOneDark, SlotTeamOneDark, SlotTeamOneDark },  // TeamOneDark
+        { SlotTeamTwoDark, SlotTeamTwoDark, SlotTeamTwoDark },  // TeamTwoDark
+        { SlotMetal, SlotMetal, SlotMetal },                // Metal
     };
+
+    public static byte TeamColor(int team) => team == 0 ? TeamOne : TeamTwo;
+    public static byte TeamColorDark(int team) => team == 0 ? TeamOneDark : TeamTwoDark;
 
     /// <summary>Вода и бедрок взрывом не выбиваются.</summary>
     public static bool IsIndestructible(byte block) => block == Bedrock || block == Water;

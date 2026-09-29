@@ -47,6 +47,15 @@ public class ArenaLayout
 
     public int2 baseOne;
     public int2 baseTwo;
+    /// <summary>Сторона ворот базы один: 0 +z, 1 +x, 2 -z, 3 -x (у базы два — противоположная)</summary>
+    public int gateSide;
+    /// <summary>
+    /// Внутри стен какого уровня лежит клетка: 0 — ни в каких, 1..3 — база один, 5..7 — база два (4 + уровень).
+    /// Хранится наименьший уровень, в который клетка попадает.
+    /// </summary>
+    public byte[] baseZone;
+    /// <summary>Ровная площадка базы (под стены 3-го уровня и отступ): 0 — нет, 1 — база один, 2 — база два</summary>
+    public byte[] baseArea;
     /// <summary>Направление от базы один к базе два (единичный вектор в плоскости x, z)</summary>
     public float2 baseAxis;
     /// <summary>Стены 1-го уровня обеих баз</summary>
@@ -171,6 +180,7 @@ public static class ArenaLayoutGenerator
                 baseOne = baseA,
                 baseTwo = baseB,
                 baseAxis = axis,
+                gateSide = gateSide,
                 regionCount = compSize.Count,
                 rampCount = rampCount,
                 flattenedRegions = flattened,
@@ -182,6 +192,7 @@ public static class ArenaLayoutGenerator
 
             PlaceTreesAndRocks(layout);
             FillLayout(layout);
+            FillBaseZones(layout);
             CheckReachability(layout);
             return layout;
         }
@@ -1279,6 +1290,41 @@ public static class ArenaLayoutGenerator
             foreach (var c in captures)
                 if (NearestSeen(c, seen, 4) < 0)
                     layout.capturePointsReachable = false;
+        }
+
+        void FillBaseZones(ArenaLayout layout)
+        {
+            layout.baseZone = new byte[n];
+            layout.baseArea = new byte[n];
+
+            // Сначала 3-й уровень, потом меньшие поверх: в клетке остаётся наименьший уровень
+            int[] sizes = { s.wallLevel3Size, s.wallLevel2Size, s.wallLevel1Size };
+            for (int k = 0; k < 3; k++)
+            {
+                int level = 3 - k;
+                int h = sizes[k] / 2;
+                for (int dz = -h; dz < h; dz++)
+                {
+                    for (int dx = -h; dx < h; dx++)
+                    {
+                        var cell = baseA + Rotate(new int2(dx, dz));
+                        layout.baseZone[Idx(cell)] = (byte)level;
+                        layout.baseZone[Idx(Mirror(cell))] = (byte)(4 + level);
+                    }
+                }
+            }
+
+            for (int dz = -baseHalf; dz <= baseHalf; dz++)
+            {
+                for (int dx = -baseHalf; dx <= baseHalf; dx++)
+                {
+                    var cell = baseA + new int2(dx, dz);
+                    if (!Inside(cell))
+                        continue;
+                    layout.baseArea[Idx(cell)] = 1;
+                    layout.baseArea[Idx(Mirror(cell))] = 2;
+                }
+            }
         }
 
         void MarkSquare(bool[] mask, int2 c, int r)

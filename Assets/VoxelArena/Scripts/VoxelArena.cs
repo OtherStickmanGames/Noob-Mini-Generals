@@ -31,6 +31,7 @@ public class VoxelArena : MonoBehaviour
     public event Action Generated;
 
     public int3 Dims => dims;
+    public Material Material => material;
     public int ChunkTotal => chunks.Length;
     public float VoxelSize => voxelSize;
     public NativeArray<byte> Voxels => voxels;
@@ -288,6 +289,27 @@ public class VoxelArena : MonoBehaviour
         }
 
         return VoxelToWorld(new float3(x + 0.5f, y + 1, z + 0.5f));
+    }
+
+    /// <summary>Высота поверхности столбца: y первого пустого вокселя над сплошным (вода — не сплошное)</summary>
+    public int SurfaceY(int x, int z)
+    {
+        int y = dims.y - 1;
+        while (y > 0)
+        {
+            byte block = voxels[VoxelIndex(x, y, z)];
+            if (block != VoxelBlocks.Air && block != VoxelBlocks.Water)
+                break;
+            y--;
+        }
+        return y + 1;
+    }
+
+    /// <summary>Есть ли вода прямо над поверхностью столбца</summary>
+    public bool IsWaterAt(int x, int z)
+    {
+        int y = SurfaceY(x, z);
+        return y < dims.y && voxels[VoxelIndex(x, y, z)] == VoxelBlocks.Water;
     }
 
     int VoxelIndex(int x, int y, int z) => (y * dims.z + z) * dims.x + x;
