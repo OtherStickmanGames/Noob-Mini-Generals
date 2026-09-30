@@ -4,20 +4,32 @@ using UnityEngine;
 namespace Generals
 {
     /// <summary>
-    /// Казармы: очередь найма пехоты и поведение бойцов («Оборона» / «Атака»).
-    /// Поведение задаётся на казармы и сразу действует на всех их бойцов, включая уже нанятых.
-    /// Висит на здании казарм рядом со Structure.
+    /// Казармы: очередь найма отрядов пехоты (отряд — UnitCatalog.SquadSize бойцов сразу, как в
+    /// Dawn of War) и поведение отрядов («Оборона» / «Атака»). Поведение задаётся на казармы и сразу
+    /// действует на все их отряды, включая уже нанятые. Висит на здании казарм рядом со Structure.
     /// </summary>
     public class Barracks : MonoBehaviour
     {
         public Structure Structure { get; private set; }
         public BarracksBehavior Behavior { get; private set; } = BarracksBehavior.Defend;
         public int Queued { get; private set; }
-        /// <summary>Прогресс найма текущего бойца, 0..1</summary>
+        /// <summary>Прогресс найма текущего отряда, 0..1</summary>
         public float Progress { get; private set; }
-        public readonly List<InfantryUnit> Units = new();
+        public readonly List<Squad> Squads = new();
 
         public Faction Faction => Structure.Faction;
+
+        /// <summary>Сколько живых бойцов во всех отрядах казарм</summary>
+        public int UnitCount
+        {
+            get
+            {
+                int n = 0;
+                foreach (var s in Squads)
+                    n += s.Members.Count;
+                return n;
+            }
+        }
 
         public void Init(Structure structure)
         {
@@ -41,13 +53,13 @@ namespace Generals
                 reason = "Очередь найма заполнена";
                 return false;
             }
-            if (!Faction.CanAfford(UnitCatalog.InfantryCost, 0))
+            if (!Faction.CanAfford(UnitCatalog.SquadCost, 0))
             {
                 reason = "Не хватает ресурсов";
                 return false;
             }
 
-            Faction.Pay(UnitCatalog.InfantryCost, 0);
+            Faction.Pay(UnitCatalog.SquadCost, 0);
             Queued++;
             reason = null;
             return true;
@@ -58,25 +70,24 @@ namespace Generals
             if (Behavior == behavior)
                 return;
             Behavior = behavior;
-            foreach (var unit in Units)
-                if (unit != null)
-                    unit.BehaviorChanged();
+            foreach (var squad in Squads)
+                squad.BehaviorChanged();
         }
 
         void Update()
         {
-            Units.RemoveAll(u => u == null);
+            Squads.RemoveAll(s => !s.IsAlive);
 
             if (!Structure.IsBuilt || Queued == 0)
                 return;
 
-            Progress += Time.deltaTime / UnitCatalog.InfantryHireTime;
+            Progress += Time.deltaTime / UnitCatalog.SquadHireTime;
             if (Progress < 1f)
                 return;
 
             // Выйти негде (NavMesh ещё не готов) — ждём с полным прогрессом
-            var unit = MatchManager.Instance.SpawnInfantry(Faction, this, Behavior);
-            if (unit == null)
+            var squad = MatchManager.Instance.SpawnSquad(Faction, this, Behavior);
+            if (squad == null)
             {
                 Progress = 1f;
                 return;
@@ -87,17 +98,16 @@ namespace Generals
         }
 
         /// <summary>
-        /// Казармы разрушены: деньги за очередь найма возвращаются, бойцы остаются
+        /// Казармы разрушены: деньги за очередь найма возвращаются, отряды остаются
         /// с последним поведением казарм
         /// </summary>
         public void OnDestroyed()
         {
-            Faction.baseResource += Queued * UnitCatalog.InfantryCost;
+            Faction.baseResource += Queued * UnitCatalog.SquadCost;
             Queued = 0;
-            foreach (var unit in Units)
-                if (unit != null)
-                    unit.DetachFromBarracks(Behavior);
-            Units.Clear();
+            foreach (var squad in Squads)
+                squad.DetachFromBarracks(Behavior);
+            Squads.Clear();
         }
     }
 }

@@ -19,6 +19,8 @@ namespace Generals
         public readonly List<Structure> structures = new();
         public readonly List<BuilderUnit> builders = new();
         public readonly List<InfantryUnit> units = new();
+        /// <summary>Отряды пехоты (бойцы — в units)</summary>
+        public readonly List<Squad> squads = new();
         /// <summary>Участки стены базы (цели для противника)</summary>
         public readonly List<WallSegment> walls = new();
 

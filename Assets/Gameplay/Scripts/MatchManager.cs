@@ -430,6 +430,9 @@ namespace Generals
                 UpdateHiring(Player);
                 UpdateHiring(Enemy);
             }
+
+            UpdateSquads(Player);
+            UpdateSquads(Enemy);
         }
 
         // ---------- Здания ----------
@@ -620,52 +623,74 @@ namespace Generals
 
         // ---------- Пехота ----------
 
-        /// <summary>Боец выходит из казарм со стороны своих ворот. null — выйти негде (NavMesh не готов)</summary>
-        public InfantryUnit SpawnInfantry(Faction faction, Barracks barracks, BarracksBehavior behavior)
+        /// <summary>
+        /// Отряд выходит из казарм со стороны своих ворот, строем. null — выйти негде (NavMesh не готов)
+        /// </summary>
+        public Squad SpawnSquad(Faction faction, Barracks barracks, BarracksBehavior behavior)
         {
             var gate = GateOf(faction);
-            var from = barracks != null ? barracks.Structure.ClosestEdgePoint(gate, 1f) : gate;
-            return SpawnInfantryAt(faction, barracks, behavior, from);
+            var from = barracks != null ? barracks.Structure.ClosestEdgePoint(gate, 1.5f) : gate;
+            return SpawnSquadAt(faction, barracks, behavior, from);
         }
 
-        InfantryUnit SpawnInfantryAt(Faction faction, Barracks barracks, BarracksBehavior behavior, Vector3 point)
+        Squad SpawnSquadAt(Faction faction, Barracks barracks, BarracksBehavior behavior, Vector3 point)
         {
             if (!navMesh.HasNavMesh || !NavMesh.SamplePosition(point, out var hit, 4f, NavMesh.AllAreas))
                 return null;
 
-            var go = new GameObject();
             var look = GateOf(faction) - hit.position;
             look.y = 0f;
-            go.transform.SetPositionAndRotation(hit.position, look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity);
-            spawned.Add(go);
+            var rotation = look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity;
+            var squad = new Squad(faction, barracks, behavior);
 
-            var unit = go.AddComponent<InfantryUnit>();
-            unit.Init(faction, barracks, behavior, arena.Material);
-            faction.units.Add(unit);
+            for (int i = 0; i < UnitCatalog.SquadSize; i++)
+            {
+                // Бойцы кучкой, каждый — на ближайшую к своему месту точку NavMesh
+                var offset = rotation * new Vector3((i % 3 - 1) * 0.9f, 0f, -(i / 3) * 0.9f);
+                var position = NavMesh.SamplePosition(hit.position + offset, out var spot, 1.5f, NavMesh.AllAreas) ? spot.position : hit.position;
+
+                var go = new GameObject();
+                go.transform.SetPositionAndRotation(position, rotation);
+                spawned.Add(go);
+                var unit = go.AddComponent<InfantryUnit>();
+                unit.Init(faction, squad, arena.Material);
+                faction.units.Add(unit);
+                squad.Members.Add(unit);
+            }
+
+            faction.squads.Add(squad);
             if (barracks != null)
             {
-                barracks.Units.Add(unit);
-                faction.unitsHired++;
+                barracks.Squads.Add(squad);
+                faction.unitsHired += squad.Members.Count;
             }
-            return unit;
+            return squad;
+        }
+
+        void UpdateSquads(Faction faction)
+        {
+            float dt = Time.deltaTime;
+            foreach (var squad in faction.squads)
+                squad.Tick(dt);
+            faction.squads.RemoveAll(s => !s.IsAlive);
         }
 
         /// <summary>Мировая точка сразу снаружи ворот базы стороны</summary>
         public Vector3 GateOf(Faction faction) => faction.team == 0 ? arena.GateOne : arena.GateTwo;
 
         /// <summary>
-        /// Пост защитника: ряды за воротами внутри стен, лицом к воротам. Место в строю — порядковый
-        /// номер бойца среди защитников его стороны, поэтому строй сам уплотняется.
+        /// Пост отряда в обороне: за воротами внутри стен, лицом к воротам. Отряды стоят рядами по
+        /// три поста; место — порядковый номер отряда среди обороняющихся, строй сам уплотняется.
         /// </summary>
-        public Vector3 DefendPost(InfantryUnit unit)
+        public void SquadPost(Squad squad, out Vector3 post, out Quaternion facing)
         {
-            var faction = unit.Faction;
+            var faction = squad.Faction;
             int index = 0, slot = 0;
-            foreach (var u in faction.units)
+            foreach (var s in faction.squads)
             {
-                if (u == null || u.Behavior != BarracksBehavior.Defend)
+                if (!s.IsAlive || s.Behavior != BarracksBehavior.Defend)
                     continue;
-                if (u == unit)
+                if (s == squad)
                     index = slot;
                 slot++;
             }
@@ -677,26 +702,26 @@ namespace Generals
             inward.Normalize();
             var side = new Vector3(inward.z, 0f, -inward.x);
 
-            const int perRow = 6;
-            const float spacing = 1.3f;
+            const int perRow = 3;
+            const float lateralSpacing = 4.5f;
+            const float rowSpacing = 3.2f;
             int row = index / perRow, column = index % perRow;
-            float lateral = (column - (perRow - 1) * 0.5f) * spacing;
-            return gate + inward * (5f + row * spacing) + side * lateral;
+            // Посередине, потом по бокам
+            float lateral = (column == 0 ? 0f : column == 1 ? -1f : 1f) * lateralSpacing;
+            post = gate + inward * (6f + row * rowSpacing) + side * lateral;
+            facing = Quaternion.LookRotation(-inward);
         }
 
         // ---------- Отладка ----------
 
-        /// <summary>Отряд противника у его ворот (пока нет ИИ противника — шаг 6)</summary>
-        public void DebugSpawnEnemySquad(int count, BarracksBehavior behavior)
+        /// <summary>Отряд противника у его ворот (отладка, в обход ИИ)</summary>
+        public void DebugSpawnEnemySquad(BarracksBehavior behavior)
         {
             var gate = GateOf(Enemy);
-            var center = arena.BaseTwo;
-            var outward = gate - center;
+            var outward = gate - arena.BaseTwo;
             outward.y = 0f;
             outward.Normalize();
-            var side = new Vector3(outward.z, 0f, -outward.x);
-            for (int i = 0; i < count; i++)
-                SpawnInfantryAt(Enemy, null, behavior, gate + outward * 2f + side * ((i - (count - 1) * 0.5f) * 1.2f));
+            SpawnSquadAt(Enemy, null, behavior, gate + outward * 3f);
         }
 
         /// <summary>Отдать игроку ближайшую к точке точку захвата (пока нет боевых юнитов)</summary>

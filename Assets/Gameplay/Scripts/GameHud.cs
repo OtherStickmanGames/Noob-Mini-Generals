@@ -289,12 +289,12 @@ namespace Generals
             // Отладка: отряды противника у его ворот (пока нет ИИ противника)
             if (Input.GetKeyDown(KeyCode.V))
             {
-                Match.DebugSpawnEnemySquad(3, BarracksBehavior.Attack);
+                Match.DebugSpawnEnemySquad(BarracksBehavior.Attack);
                 Toast("Отряд противника идёт в атаку (отладка)");
             }
             if (Input.GetKeyDown(KeyCode.B))
             {
-                Match.DebugSpawnEnemySquad(3, BarracksBehavior.Defend);
+                Match.DebugSpawnEnemySquad(BarracksBehavior.Defend);
                 Toast("Отряд противника встал в оборону (отладка)");
             }
         }
@@ -881,7 +881,7 @@ namespace Generals
                 hireButton.interactable = false;
                 SetHireProgress(0f);
                 if (barracks != null)
-                    SetButtonText(hireButton, $"Нанять: {UnitCatalog.InfantryName.ToLower()} · {UnitCatalog.InfantryCost}");
+                    SetButtonText(hireButton, HireSquadText);
             }
             else if (isHq)
             {
@@ -894,15 +894,16 @@ namespace Generals
             }
             else if (barracks != null)
             {
-                SetButtonText(hireButton, $"Нанять: {UnitCatalog.InfantryName.ToLower()} · {UnitCatalog.InfantryCost}");
+                SetButtonText(hireButton, HireSquadText);
                 hireButton.interactable = barracks.Queued < UnitCatalog.BarracksQueueLimit &&
-                                          Player.CanAfford(UnitCatalog.InfantryCost, 0);
+                                          Player.CanAfford(UnitCatalog.SquadCost, 0);
                 SetHireProgress(barracks.Queued > 0 ? barracks.Progress : 0f);
 
                 string behavior = barracks.Behavior == BarracksBehavior.Defend
                     ? "Оборона: держат пост у ворот"
                     : "Атака: идут на врага";
-                selectionInfo.text = $"Бойцов: {barracks.Units.Count}   В очереди: {barracks.Queued}/{UnitCatalog.BarracksQueueLimit}\n{behavior}";
+                selectionInfo.text = $"Отрядов: {barracks.Squads.Count} (бойцов {barracks.UnitCount})   " +
+                                     $"В очереди: {barracks.Queued}/{UnitCatalog.BarracksQueueLimit}\n{behavior}";
             }
             else if (selected.Def.type == StructureType.Extractor)
             {
@@ -936,6 +937,8 @@ namespace Generals
                 attackButton.image.color = defend ? inactiveColor : attackColor;
             }
         }
+
+        static string HireSquadText => $"Нанять отряд ({UnitCatalog.SquadSize}) · {UnitCatalog.SquadCost}";
 
         void SetHireProgress(float progress)
         {

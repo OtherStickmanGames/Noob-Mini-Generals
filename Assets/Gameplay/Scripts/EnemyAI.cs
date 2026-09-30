@@ -16,13 +16,13 @@ namespace Generals
         [Range(0.2f, 5f)] public float thinkInterval = 1f;
         [Tooltip("Сколько секунд после появления строителей ИИ ничего не делает — фора игроку")]
         [Range(0f, 120f)] public float startDelay = 15f;
-        [Tooltip("Бойцов в первой волне атаки")]
-        [Range(1, 30)] public int firstWaveSize = 6;
-        [Tooltip("На сколько бойцов каждая следующая волна больше")]
-        [Range(0, 10)] public int waveGrowth = 2;
-        [Range(1, 60)] public int maxWaveSize = 20;
-        [Tooltip("Волна закончилась, когда атакующих осталось не больше стольких — остальные копятся снова")]
-        [Range(0, 10)] public int waveEndSurvivors = 1;
+        [Tooltip("Отрядов в первой волне атаки")]
+        [Range(1, 10)] public int firstWaveSize = 2;
+        [Tooltip("На сколько отрядов каждая следующая волна больше")]
+        [Range(0, 5)] public int waveGrowth = 1;
+        [Range(1, 15)] public int maxWaveSize = 5;
+        [Tooltip("Волна закончилась, когда от атакующих отрядов осталось не больше стольких бойцов — копятся снова")]
+        [Range(0, 10)] public int waveEndSurvivors = 2;
         [Tooltip("Столько бойцов игрока внутри стен — атакующих отзывают на защиту")]
         [Range(1, 20)] public int recallThreshold = 3;
         [Tooltip("Очередь найма на каждых казармах держится такой")]
@@ -184,7 +184,7 @@ namespace Generals
                 var barracks = s != null ? s.Barracks : null;
                 if (barracks == null || !s.IsBuilt || barracks.Queued >= settings.barracksQueue)
                     continue;
-                if (me.baseResource - UnitCatalog.InfantryCost < reserve)
+                if (me.baseResource - UnitCatalog.SquadCost < reserve)
                     return;
                 barracks.TryHire(out _);
             }
@@ -261,25 +261,26 @@ namespace Generals
 
         void UpdateWaves()
         {
-            int defenders = 0, attackers = 0;
-            foreach (var u in me.units)
+            // Волна считается в отрядах, её остаток — в бойцах
+            int defendingSquads = 0, attackers = 0;
+            foreach (var squad in me.squads)
             {
-                if (!Combat.IsAlive(u))
+                if (!squad.IsAlive)
                     continue;
-                if (u.Behavior == BarracksBehavior.Attack)
-                    attackers++;
+                if (squad.Behavior == BarracksBehavior.Attack)
+                    attackers += squad.Members.Count;
                 else
-                    defenders++;
+                    defendingSquads++;
             }
 
             if (!Attacking)
             {
-                if (defenders >= waveSize)
+                if (defendingSquads >= waveSize)
                 {
                     Attacking = true;
                     WaveNumber++;
                     SetBehavior(BarracksBehavior.Attack);
-                    Debug.Log($"[ИИ] Волна {WaveNumber}: {defenders} бойцов в атаку");
+                    Debug.Log($"[ИИ] Волна {WaveNumber}: отрядов в атаку — {defendingSquads}");
                 }
                 return;
             }

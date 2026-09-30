@@ -15,8 +15,12 @@ namespace Generals
     public static class UnitCatalog
     {
         public const string InfantryName = "Пехотинец";
-        public const int InfantryCost = 60;
-        public const float InfantryHireTime = 10f;
+
+        // Казармы нанимают отряд целиком, как в Dawn of War (решение автора: 5 бойцов, без роста)
+        public const string SquadName = "Отряд пехоты";
+        public const int SquadSize = 5;
+        public const int SquadCost = 250;
+        public const float SquadHireTime = 25f;
         public const float InfantryHealth = 100f;
         public const float InfantrySpeed = 3.2f;
 
@@ -33,7 +37,7 @@ namespace Generals
         /// </summary>
         public const float AttackTargetWindow = 12f;
 
-        /// <summary>Сколько бойцов казармы могут держать в очереди найма</summary>
-        public const int BarracksQueueLimit = 5;
+        /// <summary>Сколько отрядов казармы могут держать в очереди найма</summary>
+        public const int BarracksQueueLimit = 3;
     }
 }
