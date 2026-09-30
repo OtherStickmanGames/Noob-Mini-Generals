@@ -1,6 +1,6 @@
 // Шейдер эффектов боя: снаряды, вспышки, обломки, дым. Кубики в стиле арены.
 // Режимы (локальные ключи, материалы создаются в коде — поэтому multi_compile, а не shader_feature):
-//   _PALETTE  — цвет из палитры арены: цвет вершины r — индекс палитры, a — непрозрачность.
+//   _PALETTE  — цвет из палитры арены: альфа цвета вершины — индекс палитры (RGB частиц в линейном цветовом пространстве Unity переводит из гаммы, альфу — нет), всегда непрозрачно.
 //               Обломки земли и зданий сразу в цветах биома и команд.
 //   _EMISSIVE — светится сам, без освещения: _Color * цвет вершины (снаряды, вспышки).
 //   _BLUEPRINT — чертёж недостроенной части здания: _Color, освещённый, по граням вокселей —
@@ -89,9 +89,10 @@ Shader "NoobGenerals/Effect"
                 half alpha = _Color.a * input.color.a;
             #else
                 #if defined(_PALETTE)
-                    int paletteIndex = (int)round(input.color.r * 255.0);
+                    // Индекс — в альфе: RGB цвета частиц Unity в линейном пространстве переводит из гаммы и портит индекс
+                    int paletteIndex = (int)round(input.color.a * 255.0);
                     half3 albedo = LOAD_TEXTURE2D(_VoxelPaletteTex, int2(paletteIndex, 0)).rgb;
-                    half alpha = input.color.a;
+                    half alpha = 1.0;
                 #elif defined(_BLUEPRINT)
                     // Линии по границам вокселей в плоскости грани: две оси, перпендикулярные нормали
                     float3 cell = frac(input.positionOS);

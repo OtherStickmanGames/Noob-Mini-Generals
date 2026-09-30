@@ -174,7 +174,7 @@ namespace Generals
             const float drop = 0.7f;
             const float time = 0.14f;
             Emit(debris, position + Vector3.up * drop, Vector3.down * (drop / time), VoxelModels.VoxelSize * 0.95f, time,
-                 new Color32(paletteSlot, 255, 255, 255));
+                 PaletteColor(paletteSlot));
             if (dust)
                 EmitSmoke(position + Random.insideUnitSphere * 0.1f, Random.insideUnitSphere * 0.4f + Vector3.up * 0.2f,
                           Random.Range(0.12f, 0.2f), Random.Range(0.5f, 0.8f), 0.5f, DustColor);
@@ -237,6 +237,12 @@ namespace Generals
 
         static readonly Color DustColor = new(0.72f, 0.66f, 0.56f, 1f);
 
+        /// <summary>
+        /// Цвет частицы-обломка: индекс палитры — в альфе. RGB цвета частиц в линейном цветовом
+        /// пространстве Unity переводит из гаммы (индекс 32 становится ~2), альфу оставляет как есть.
+        /// </summary>
+        static Color32 PaletteColor(byte paletteSlot) => new(255, 255, 255, paletteSlot);
+
         public static byte TeamSlot(int team) => team == 0 ? VoxelBlocks.SlotTeamOne : VoxelBlocks.SlotTeamTwo;
         public static byte TeamDarkSlot(int team) => team == 0 ? VoxelBlocks.SlotTeamOneDark : VoxelBlocks.SlotTeamTwoDark;
 
@@ -257,7 +263,7 @@ namespace Generals
 
         void EmitDebris(Vector3 position, Vector3 velocity, float size, byte paletteSlot, float lifetime)
         {
-            Emit(debris, position, velocity, size, lifetime, new Color32(paletteSlot, 255, 255, 255));
+            Emit(debris, position, velocity, size, lifetime, PaletteColor(paletteSlot));
         }
 
         void EmitSmoke(Vector3 position, Vector3 velocity, float size, float lifetime, float alpha)
