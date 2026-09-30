@@ -7,14 +7,16 @@
 - Ассембли-дефиниций нет: весь код в Assembly-CSharp (видит URP, Burst и т. д.).
 - Ассеты рендерера URP: `Assets/Settings/URP-{Performant,Balanced,HighFidelity}(-Renderer).asset`.
   HighFidelity — MSAA 4x. Во всех рендерерах есть фича `OutlineFeature` (добавляется сама,
-  см. «Рендеринг»), промежуточная текстура камеры — Always.
+  см. `Rendering/OutlineFeature.cs` в разделе «Бой»), промежуточная текстура камеры — Always.
 
 ## Папки
 
 | Папка | Что там |
 |---|---|
 | `Assets/VoxelArena` | Воксельная арена: хранение, генерация, меш, NavMesh, шейдер, тестовая сцена. Глобальное пространство имён. README внутри. |
+| `Assets/VoxelArena/Scripts` | Код арены (`Scripts/Jobs` — Burst-джобы). `Editor/` — меню создания сцен, `Shaders/` — шейдер арены. |
 | `Assets/Gameplay` | Бой вертикального среза, пространство имён `Generals`. README внутри. |
+| `Assets/Gameplay/Scripts` | Код боя (`Scripts/Rendering` — экранный контур). `Editor/` — сборка HUD-префаба и установка фичи рендерера. |
 | `Assets/Gameplay/Resources` | Шейдеры, которые ищутся через `Shader.Find` (сетка застройки, контур) — в Resources, чтобы попасть в сборку. |
 | `Assets/Gameplay/Prefabs/HUD.prefab` | Интерфейс боя (собран editor-скриптом, дальше может правиться руками). |
 | `Assets/Scenes/Match.unity` | Сцена боя (основная для среза). `Voxel Arena.unity` — тестовая сцена арены. `Game.unity` — старая игра. |
@@ -32,6 +34,9 @@
 - Клетки зданий: `int2` (x, z). `BuildGrid.MinFromCenter` — угол прямоугольника по центру.
 
 ## Воксельная арена (`Assets/VoxelArena`)
+
+Файлы `.cs` ниже — в `Assets/VoxelArena/Scripts/` (`Jobs/…` — в `Scripts/Jobs/`); шейдер — в
+`Assets/VoxelArena/Shaders/`, меню создания сцен — `Assets/VoxelArena/Editor/VoxelArenaSetup.cs`.
 
 ### Хранение и меш
 - `VoxelArena.cs`: один `NativeArray<byte>` на всю арену (id блока), чанки 16³.
@@ -90,6 +95,8 @@
 
 ## Бой (`Assets/Gameplay`, пространство имён `Generals`)
 
+Пути в таблице — от `Assets/Gameplay/Scripts/`; `Resources/…` и `Editor/…` — от `Assets/Gameplay/`.
+
 | Файл | Роль |
 |---|---|
 | `MatchManager.cs` | Синглтон боя. По `arena.Generated`: стороны, `BuildGrid`, точки захвата, главное здание (повернуто к воротам) и стартовый добытчик; строители — когда готов NavMesh. Заказ построек, найм строителей, общий материал зданий. |
@@ -102,6 +109,7 @@
 | `VoxelModels.cs` | Воксельные модели-заглушки зданий, строителя, флага; меш через `GreedyMeshJob`, кэш. |
 | `RtsCamera.cs` | Камера: своя база внизу экрана, сдвиг/зум пальцами, мышью, WASD; `Tapped`, перетаскивание объекта (`TryBeginObjectDrag`, `ObjectDragged`), `GlideTo` (плавный перевод). |
 | `GameHud.cs` | Логика интерфейса: ресурсы, меню построек, установка здания, панель выбранного здания. Настройки вида установки (`BuildGridStyle`, `PlacementOutlineStyle`, `PlacementSceneStyle`) — в инспекторе. |
+| `BuildGridStyle.cs` | Сериализуемые стили вида установки для инспектора HUD: `BuildGridStyle` (цвета, линии, заливка, апофема, затухание края сетки), `PlacementSceneStyle` (прозрачность и приглушение стен и зданий), `PlacementOutlineStyle` (цвета и толщина контура, яркость за препятствием). Значения по умолчанию = настроенные автором в префабе. |
 | `BuildGridOverlay.cs` + `Resources/BuildGrid.shader` | Сетка застройки вокруг центра экрана (апофема 38), клетки вплотную, линии и заливку рисует шейдер по UV. Также рисует второй прозрачный проход стен. |
 | `BuildModeVisuals.cs` | Вид арены при установке: ключ шейдера, прозрачность и приглушение материалов. |
 | `Rendering/OutlineFeature.cs`, `Rendering/SelectionOutline.cs`, `Resources/Outline.shader` | Экранный контур (URP Renderer Feature): маска силуэта с буфером глубины камеры → линия постоянной толщины в пикселях, тусклее за препятствиями. |
