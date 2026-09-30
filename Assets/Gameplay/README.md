@@ -52,7 +52,8 @@
 - `BuilderUnit.cs` — строитель, сам находит работу.
 - `UnitCatalog.cs`, `Barracks.cs`, `InfantryUnit.cs` — пехота, казармы и поведение.
 - `Editor/HudPrefabUpgrader.cs` — сам добавляет в существующий префаб HUD новые элементы.
-- `CapturePoint.cs` — точка захвата: владелец, захват юнитами (`ICapturer`), доход.
+- `CapturePoint.cs` — точка захвата: владелец, захват через `ICapturer` (юниты его пока не
+  реализуют — точки заморожены), доход.
 - `BuildGrid.cs` — занятость клеток и проверка места.
 - `Rendering/OutlineFeature.cs`, `Rendering/SelectionOutline.cs`, шейдер `Resources/Outline.shader` —
   экранный контур (Renderer Feature URP). В ассеты рендерера добавляется сам: `Editor/OutlineFeatureInstaller.cs`
