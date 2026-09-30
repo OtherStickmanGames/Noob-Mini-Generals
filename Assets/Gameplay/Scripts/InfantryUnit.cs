@@ -165,8 +165,7 @@ namespace Generals
 
             // Постройка — случайная из ближайших (здание или участок стены), бьём до разрушения
             // Шёл на участок стены, но уже прошёл внутрь (в пролом или ворота) — теперь здания
-            bool wallBehind = attackTarget is WallSegment && match.IsInsideWalls(transform.position, enemy) &&
-                              enemy.structures.Count > 0;
+            bool wallBehind = attackTarget is WallSegment && match.IsInsideWalls(transform.position, enemy);
             if (!Combat.IsAlive(attackTarget) || wallBehind)
                 SetAttackTarget(match.ChooseAttackTarget(this, null));
             if (attackTarget != null)

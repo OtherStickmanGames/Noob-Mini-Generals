@@ -203,9 +203,11 @@ namespace Generals
             var position = unit.transform.position;
             candidateTargets.Clear();
 
-            // Прорвался внутрь стен — бьёт здания, стены за спиной уже не цель
-            if (IsInsideWalls(position, enemy) && HasOtherStructure(enemy, exclude))
-                return ChooseStructure(enemy, position, exclude);
+            // Прорвался внутрь стен — бьёт только здания, стены за спиной уже не цель. Пока бой идёт,
+            // главное здание врага стоит, так что здание есть всегда; если исключённое — последнее,
+            // берём его же (боец подойдёт и поищет позицию заново)
+            if (IsInsideWalls(position, enemy))
+                return ChooseStructure(enemy, position, HasOtherStructure(enemy, exclude) ? exclude : null);
 
             float nearest = float.MaxValue;
             foreach (var s in enemy.structures)
