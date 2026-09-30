@@ -60,6 +60,7 @@ namespace Generals
         GameObject ghost;
         Renderer ghostSlab;
         float ghostHeight;
+        BuildGridOverlay gridOverlay;
 
         MatchManager Match => MatchManager.Instance;
         Faction Player => Match.Player;
@@ -137,6 +138,8 @@ namespace Generals
             {
                 Match.DebugCaptureNearest(hit.point, 0);
                 Toast("Ближайшая точка захвачена (отладка)");
+                if (placingDef != null)
+                    gridOverlay.MarkDirty();
             }
         }
 
@@ -214,13 +217,26 @@ namespace Generals
             placementButtons.gameObject.SetActive(true);
             placementHintPanel.SetActive(true);
 
-            var center = Player.headquarters != null
-                ? Player.headquarters.MinCell + Player.headquarters.Def.footprint / 2
-                : int2.zero;
-            if (RaycastTerrain(new Vector2(Screen.width, Screen.height) * 0.5f, out var hit))
-                center = CellAt(hit);
+            if (!ScreenCenterCell(out var center))
+                center = Player.headquarters != null
+                    ? Player.headquarters.MinCell + Player.headquarters.Def.footprint / 2
+                    : int2.zero;
+
+            if (gridOverlay == null)
+                gridOverlay = BuildGridOverlay.Create(Match.Arena);
+            gridOverlay.Show(Match.Grid, Player, def.rule, center);
 
             SetGhostMin(FindInitialSpot(def, center));
+        }
+
+        /// <summary>Клетка под центром экрана</summary>
+        bool ScreenCenterCell(out int2 cell)
+        {
+            cell = default;
+            if (!RaycastTerrain(new Vector2(Screen.width, Screen.height) * 0.5f, out var hit))
+                return false;
+            cell = CellAt(hit);
+            return true;
         }
 
         int2 FindInitialSpot(StructureDef def, int2 center)
@@ -228,7 +244,7 @@ namespace Generals
             // Шахта — на ближайшую свою точку захвата
             if (def.rule == PlacementRule.Deposit)
             {
-                int2 best = BuildGrid.MinFromCenter(def, center);
+                int2 best = default;
                 int bestDistance = int.MaxValue;
                 foreach (var r in Match.Arena.Layout.resources)
                 {
@@ -243,12 +259,18 @@ namespace Generals
                         best = min;
                     }
                 }
-                return best;
+                if (bestDistance != int.MaxValue)
+                    return best;
+            }
+            // Остальное — ближайшее подходящее место от центра экрана
+            else if (Match.Grid.FindNearest(Player, def, center, gridOverlay.apothem, out var spot))
+            {
+                return spot;
             }
 
-            // Остальное — ближайшее подходящее место от центра экрана
-            Match.Grid.FindNearest(Player, def, center, 20, out var spot);
-            return spot;
+            // Подходящего места нет — хотя бы не внутри другого здания
+            Match.Grid.FindNearestFree(def, center, gridOverlay.apothem * 2, out var free);
+            return free;
         }
 
         // Нажатие на здание (или рядом, на клетку) при установке — начинаем его тащить
@@ -299,6 +321,10 @@ namespace Generals
             if (placingDef == null || ghost == null || !ghost.activeSelf)
                 return;
 
+            // Сетка застройки идёт за центром экрана
+            if (ScreenCenterCell(out var centerCell))
+                gridOverlay.SetCenter(centerCell);
+
             var top = ghost.transform.position + Vector3.up * (ghostHeight + 0.6f);
             var screen = rtsCamera.Camera.WorldToScreenPoint(top);
             bool visible = screen.z > 0f;
@@ -329,6 +355,8 @@ namespace Generals
             placingDef = null;
             placementButtons.gameObject.SetActive(false);
             placementHintPanel.SetActive(false);
+            if (gridOverlay != null)
+                gridOverlay.Hide();
             if (ghost != null)
                 Destroy(ghost);
             ghost = null;
