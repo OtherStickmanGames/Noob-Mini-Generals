@@ -50,6 +50,7 @@ namespace Generals
             StructureType.Extractor,
             StructureType.Barracks,
             StructureType.Turret,
+            StructureType.ReinforcementPoint,
             null,
             StructureType.Extractor,
             StructureType.Turret,
@@ -121,6 +122,7 @@ namespace Generals
                     reserve = cost * 0.6f;
             }
 
+            ReinforceSquads(reserve);
             HireInfantry(reserve);
             UpdateWaves();
         }
@@ -175,6 +177,27 @@ namespace Generals
             var def = StructureCatalog.Get(item.Value);
             if (FindSpot(def, out var min))
                 match.TryOrderConstruction(me, def, min, out _);
+        }
+
+        // Отряды, вернувшиеся в оборону потрёпанными, пополняются в пункте подкрепления
+        void ReinforceSquads(float reserve)
+        {
+            ReinforcementPoint point = null;
+            foreach (var s in me.structures)
+                if (s != null && s.IsBuilt && s.ReinforcementPoint != null)
+                    point = s.ReinforcementPoint;
+            if (point == null)
+                return;
+
+            foreach (var squad in me.squads)
+            {
+                if (!squad.IsAlive || squad.Behavior != BarracksBehavior.Defend)
+                    continue;
+                int missing = ReinforcementPoint.Missing(squad);
+                if (missing < 2 || me.baseResource - missing * UnitCatalog.ReinforceCost < reserve)
+                    continue;
+                point.TryReinforce(squad, out _);
+            }
         }
 
         void HireInfantry(float reserve)

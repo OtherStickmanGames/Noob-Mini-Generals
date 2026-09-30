@@ -21,6 +21,8 @@ namespace Generals
         public readonly List<InfantryUnit> units = new();
         /// <summary>Отряды пехоты (бойцы — в units)</summary>
         public readonly List<Squad> squads = new();
+        /// <summary>Сколько отрядов создано за бой — для их номеров</summary>
+        public int squadsCreated;
         /// <summary>Участки стены базы (цели для противника)</summary>
         public readonly List<WallSegment> walls = new();
 

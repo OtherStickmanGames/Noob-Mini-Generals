@@ -10,6 +10,7 @@ namespace Generals
         Mine,
         Barracks,
         Turret,
+        ReinforcementPoint,
     }
 
     public enum PlacementRule
@@ -97,6 +98,18 @@ namespace Generals
                 buildTime = 10f,
                 health = 600f,
                 rule = PlacementRule.BaseArea,
+                buildable = true,
+            },
+            // Пополнение отрядов (решение автора: отдельная постройка, не казармы)
+            [StructureType.ReinforcementPoint] = new StructureDef
+            {
+                type = StructureType.ReinforcementPoint,
+                name = "Пункт подкрепления",
+                footprint = new int2(5, 5),
+                costBase = 150,
+                buildTime = 20f,
+                health = 900f,
+                rule = PlacementRule.InsideWalls,
                 buildable = true,
             },
         };

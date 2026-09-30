@@ -54,6 +54,15 @@ namespace Generals
         [SerializeField] Button defendButton;
         [SerializeField] Button attackButton;
 
+        [Header("Пункт подкрепления")]
+        [Tooltip("Список отрядов над панелью здания — только у своего пункта подкрепления")]
+        [SerializeField] GameObject reinforcePanel;
+        [Tooltip("Образец строки отряда: дочерние Label (текст) и Reinforce (кнопка «Пополнить»)")]
+        [SerializeField] RectTransform reinforceRowTemplate;
+        [Tooltip("Строка под списком: «отрядов нет» или «и ещё N»")]
+        [SerializeField] TMP_Text reinforceNote;
+        [SerializeField] int reinforceMaxRows = 6;
+
         [Header("Значки над казармами")]
         [Tooltip("Образец значка поведения: копируется по одному на каждые свои казармы")]
         [SerializeField] RectTransform barracksBadgeTemplate;
@@ -191,6 +200,8 @@ namespace Generals
             selectionHeightWithBehavior = ((RectTransform)selectionPanel.transform).sizeDelta.y;
             barracksBadgeTemplate.gameObject.SetActive(false);
             healthBarTemplate.gameObject.SetActive(false);
+            reinforcePanel.SetActive(false);
+            reinforceRowTemplate.gameObject.SetActive(false);
 
             newMatchButton.onClick.AddListener(() => StartCoroutine(NewMatchRoutine()));
             lookAroundButton.onClick.AddListener(() =>
@@ -860,6 +871,8 @@ namespace Generals
             }
 
             bool own = selected.Faction == Player;
+            var reinforcement = own ? selected.ReinforcementPoint : null;
+            UpdateReinforcePanel(reinforcement);
             // Прочность — справа от названия, цветом стороны
             var hpColor = ColorUtility.ToHtmlStringRGB(own ? ownHealthColor : enemyHealthColor);
             selectionTitle.text = (own ? selected.Def.name : $"{selected.Def.name} (противник)") +
@@ -871,7 +884,8 @@ namespace Generals
             // Найм: у главного здания — строители, у казарм — пехота
             bool canHire = isHq || barracks != null;
             hireButton.gameObject.SetActive(canHire);
-            hireProgressFill.transform.parent.gameObject.SetActive(canHire);
+            // Полоса — прогресс найма; у пункта подкрепления — выход очередного бойца
+            hireProgressFill.transform.parent.gameObject.SetActive(canHire || reinforcement != null);
             SetBehaviorRowVisible(barracks != null);
 
             if (!selected.IsBuilt)
@@ -915,6 +929,13 @@ namespace Generals
                     ? "Добывает ценный ресурс"
                     : "Точка потеряна — добыча стоит";
             }
+            else if (reinforcement != null)
+            {
+                SetHireProgress(reinforcement.Queued > 0 ? reinforcement.Progress : 0f);
+                selectionInfo.text = reinforcement.Queued > 0
+                    ? $"Пополнение: в очереди бойцов {reinforcement.Queued}"
+                    : $"Пополняет отряды: {UnitCatalog.ReinforceCost} за бойца";
+            }
             else if (selected.Turret != null)
             {
                 selectionInfo.text = selected.Turret.Target != null
@@ -939,6 +960,98 @@ namespace Generals
         }
 
         static string HireSquadText => $"Нанять отряд ({UnitCatalog.SquadSize}) · {UnitCatalog.SquadCost}";
+
+        // ---------- Пункт подкрепления ----------
+
+        class ReinforceRow
+        {
+            public RectTransform rect;
+            public TMP_Text label;
+            public Button button;
+            public TMP_Text buttonText;
+            public Squad squad;
+        }
+        readonly List<ReinforceRow> reinforceRows = new();
+        readonly List<Squad> reinforceSquads = new();
+        ReinforcementPoint shownReinforcement;
+
+        // Над панелью пункта подкрепления — отряды игрока: номер, режим, бойцы и «Пополнить +N · цена»
+        void UpdateReinforcePanel(ReinforcementPoint point)
+        {
+            shownReinforcement = point;
+            if (reinforcePanel.activeSelf != (point != null))
+                reinforcePanel.SetActive(point != null);
+            if (point == null)
+                return;
+
+            reinforceSquads.Clear();
+            foreach (var s in Player.squads)
+                if (s.IsAlive)
+                    reinforceSquads.Add(s);
+            reinforceSquads.Sort((a, b) => a.Number.CompareTo(b.Number));
+
+            int count = Mathf.Min(reinforceSquads.Count, reinforceMaxRows);
+            while (reinforceRows.Count < count)
+                reinforceRows.Add(CreateReinforceRow(reinforceRows.Count));
+
+            for (int i = 0; i < reinforceRows.Count; i++)
+            {
+                var row = reinforceRows[i];
+                bool visible = i < count;
+                if (row.rect.gameObject.activeSelf != visible)
+                    row.rect.gameObject.SetActive(visible);
+                if (!visible)
+                {
+                    row.squad = null;
+                    continue;
+                }
+
+                var squad = reinforceSquads[i];
+                row.squad = squad;
+                string mode = squad.Behavior == BarracksBehavior.Defend ? "оборона" : "атака";
+                string coming = squad.PendingReinforcements > 0 ? $"  <color=#9fd49f>+{squad.PendingReinforcements} в пути</color>" : "";
+                row.label.text = $"Отряд {squad.Number} · {mode} · {squad.Members.Count}/{UnitCatalog.SquadSize}{coming}";
+
+                int missing = ReinforcementPoint.Missing(squad);
+                row.buttonText.text = missing > 0
+                    ? $"Пополнить +{missing} · {missing * UnitCatalog.ReinforceCost}"
+                    : "Полный";
+                row.button.interactable = missing > 0 && point.Structure.IsBuilt &&
+                                          Player.CanAfford(missing * UnitCatalog.ReinforceCost, 0);
+            }
+
+            int hidden = reinforceSquads.Count - count;
+            string note = reinforceSquads.Count == 0 ? "Отрядов нет — наймите в казармах"
+                : hidden > 0 ? $"…и ещё отрядов: {hidden}"
+                : null;
+            if (reinforceNote.gameObject.activeSelf != (note != null))
+                reinforceNote.gameObject.SetActive(note != null);
+            if (note != null)
+                reinforceNote.text = note;
+        }
+
+        ReinforceRow CreateReinforceRow(int index)
+        {
+            var rect = Instantiate(reinforceRowTemplate, reinforceRowTemplate.parent);
+            rect.name = "Reinforce Row " + index;
+            // Строки — перед строкой-примечанием
+            rect.SetSiblingIndex(reinforceNote.transform.GetSiblingIndex());
+            var button = rect.Find("Reinforce").GetComponent<Button>();
+            var row = new ReinforceRow
+            {
+                rect = rect,
+                label = rect.Find("Label").GetComponentInChildren<TMP_Text>(),
+                button = button,
+                buttonText = button.GetComponentInChildren<TMP_Text>(),
+            };
+            button.onClick.AddListener(() =>
+            {
+                if (shownReinforcement != null && row.squad != null &&
+                    !shownReinforcement.TryReinforce(row.squad, out var reason))
+                    Toast(reason);
+            });
+            return row;
+        }
 
         void SetHireProgress(float progress)
         {

@@ -29,6 +29,8 @@ namespace Generals
         public Barracks Barracks { get; private set; }
         /// <summary>Поворотная башня — только у турели</summary>
         public Turret Turret { get; private set; }
+        /// <summary>Пополнение отрядов — только у пункта подкрепления</summary>
+        public ReinforcementPoint ReinforcementPoint { get; private set; }
 
         /// <summary>Высота модели здания, м</summary>
         public float Height => modelHeight;
@@ -97,6 +99,11 @@ namespace Generals
             {
                 Turret = gameObject.AddComponent<Turret>();
                 Turret.Init(this, holder, material);
+            }
+            else if (def.type == StructureType.ReinforcementPoint)
+            {
+                ReinforcementPoint = gameObject.AddComponent<ReinforcementPoint>();
+                ReinforcementPoint.Init(this);
             }
 
             if (built)

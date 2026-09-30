@@ -57,7 +57,8 @@
 - `Faction.cs` — сторона: ресурсы, уровень стен, здания, строители.
 - `Structure.cs` — здание: стройка, доход, вырез в NavMesh.
 - `BuilderUnit.cs` — строитель, сам находит работу.
-- `UnitCatalog.cs`, `Barracks.cs`, `InfantryUnit.cs` — пехота, казармы и поведение.
+- `UnitCatalog.cs`, `Barracks.cs`, `Squad.cs`, `InfantryUnit.cs` — отряды пехоты, казармы и поведение;
+  `ReinforcementPoint.cs` — пункт подкрепления (пополнение отрядов кнопкой в его панели).
 - `WeaponCatalog.cs`, `Weapon.cs`, `Combat.cs` (`IDamageable`), `Projectiles.cs`, `Turret.cs` — оружие,
   снаряды, урон, турель. `Effects.cs` + шейдер `Resources/Effect.shader` — вспышки, обломки, дым.
 - `DestructibleModel.cs` — здание крошится по вокселям; `WallSegment.cs` — участок стены как цель.

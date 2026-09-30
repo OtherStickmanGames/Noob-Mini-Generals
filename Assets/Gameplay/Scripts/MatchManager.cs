@@ -496,6 +496,8 @@ namespace Generals
                 structure.CapturePoint.Mine = null;
             if (structure.Barracks != null)
                 structure.Barracks.OnDestroyed();
+            if (structure.ReinforcementPoint != null)
+                structure.ReinforcementPoint.OnDestroyed();
             if (structure.AssignedBuilder != null)
                 structure.AssignedBuilder = null;
 
@@ -665,6 +667,29 @@ namespace Generals
                 faction.unitsHired += squad.Members.Count;
             }
             return squad;
+        }
+
+        /// <summary>
+        /// Боец пополнения выходит из пункта подкрепления со стороны отряда и сразу становится его
+        /// бойцом (побежит на своё место в строю). false — выйти негде (NavMesh не готов)
+        /// </summary>
+        public bool SpawnReinforcement(ReinforcementPoint point, Squad squad)
+        {
+            var from = point.Structure.ClosestEdgePoint(squad.Center, 1.2f);
+            if (!navMesh.HasNavMesh || !NavMesh.SamplePosition(from, out var hit, 3f, NavMesh.AllAreas))
+                return false;
+
+            var look = squad.Center - hit.position;
+            look.y = 0f;
+            var go = new GameObject();
+            go.transform.SetPositionAndRotation(hit.position, look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity);
+            spawned.Add(go);
+            var unit = go.AddComponent<InfantryUnit>();
+            unit.Init(squad.Faction, squad, arena.Material);
+            squad.Faction.units.Add(unit);
+            squad.Members.Add(unit);
+            squad.Faction.unitsHired++;
+            return true;
         }
 
         void UpdateSquads(Faction faction)

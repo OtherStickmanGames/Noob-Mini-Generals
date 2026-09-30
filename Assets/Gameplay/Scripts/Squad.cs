@@ -34,6 +34,10 @@ namespace Generals
         };
 
         public readonly Faction Faction;
+        /// <summary>Номер отряда у стороны (1, 2, …) — для списка в пункте подкрепления</summary>
+        public readonly int Number;
+        /// <summary>Сколько бойцов уже заказано в пункте подкрепления и ещё не вышло</summary>
+        public int PendingReinforcements;
         public Barracks Barracks { get; private set; }
         public readonly List<InfantryUnit> Members = new();
         public BarracksBehavior Behavior => Barracks != null ? Barracks.Behavior : ownBehavior;
@@ -64,6 +68,7 @@ namespace Generals
         public Squad(Faction faction, Barracks barracks, BarracksBehavior behavior)
         {
             Faction = faction;
+            Number = ++faction.squadsCreated;
             Barracks = barracks;
             ownBehavior = behavior;
             thinkTimer = Random.value * ThinkInterval;

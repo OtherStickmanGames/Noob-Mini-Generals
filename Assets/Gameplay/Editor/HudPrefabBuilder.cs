@@ -126,6 +126,7 @@ namespace Generals.EditorTools
 
             AddBarracksControls(root);
             AddCombatControls(root);
+            AddReinforceControls(root, false);
 
             Directory.CreateDirectory(Path.GetDirectoryName(PrefabPath));
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
@@ -144,14 +145,15 @@ namespace Generals.EditorTools
             if (prefab == null || prefab.GetComponent<GameHud>() is not { } hud)
                 return;
             bool barracks = NeedsBarracksControls(hud), combat = NeedsCombatControls(hud);
-            if (barracks || combat)
-                UpgradeControls(barracks, combat);
+            bool reinforce = NeedsReinforceControls(hud);
+            if (barracks || combat || reinforce)
+                UpgradeControls(barracks, combat, reinforce);
 
             // Мобильный интерфейс: собрать, если его нет, и привязать к ПК-интерфейсу
             HudMobilePrefabBuilder.EnsureAndLink();
         }
 
-        static void UpgradeControls(bool barracks, bool combat)
+        static void UpgradeControls(bool barracks, bool combat, bool reinforce)
         {
             var root = PrefabUtility.LoadPrefabContents(PrefabPath);
             try
@@ -160,16 +162,74 @@ namespace Generals.EditorTools
                     AddBarracksControls(root);
                 if (combat)
                     AddCombatControls(root);
+                if (reinforce)
+                    AddReinforceControls(root, false);
                 PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
                 if (barracks)
                     Debug.Log("[HUD] В префаб HUD добавлены панель казарм и значки поведения");
                 if (combat)
                     Debug.Log("[HUD] В префаб HUD добавлены полоски прочности и итоги боя");
+                if (reinforce)
+                    Debug.Log("[HUD] В префаб HUD добавлен список отрядов пункта подкрепления");
             }
             finally
             {
                 PrefabUtility.UnloadPrefabContents(root);
             }
+        }
+
+        internal static bool NeedsReinforceControls(GameHud hud) =>
+            new SerializedObject(hud).FindProperty("reinforcePanel").objectReferenceValue == null;
+
+        /// <summary>
+        /// Список отрядов пункта подкрепления — над панелью выбранного здания (её дочерний объект,
+        /// растёт вверх по числу строк): заголовок, строки «Отряд N · режим · 3/5 | Пополнить +2 · 120»,
+        /// строка-примечание. mobile — всё крупнее, под палец.
+        /// </summary>
+        internal static void AddReinforceControls(GameObject root, bool mobile)
+        {
+            var hud = root.GetComponent<GameHud>();
+            var so = new SerializedObject(hud);
+            var selection = ((GameObject)so.FindProperty("selectionPanel").objectReferenceValue).GetComponent<RectTransform>();
+            float k = mobile ? 1.55f : 1f;
+
+            var panel = MakePanel(selection, "Reinforce", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 0f),
+                                  new Vector2(0f, 12f), new Vector2(0f, 100f), PanelColor);
+            var layout = panel.gameObject.AddComponent<VerticalLayoutGroup>();
+            int pad = Mathf.RoundToInt(14 * k);
+            layout.padding = new RectOffset(pad, pad, pad, pad);
+            layout.spacing = 8f * k;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+            panel.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            var header = MakeLabel(panel, "Пополнение отрядов", Mathf.RoundToInt(32 * k), TextAlignmentOptions.MidlineLeft);
+            header.fontStyle = FontStyles.Bold;
+            header.gameObject.AddComponent<LayoutElement>().preferredHeight = 46f * k;
+
+            var row = MakePanel(panel, "Reinforce Row Template", Vector2.zero, Vector2.zero, new Vector2(0.5f, 0.5f),
+                                Vector2.zero, Vector2.zero, new Color(1f, 1f, 1f, 0.06f));
+            row.GetComponent<Image>().raycastTarget = false;
+            row.gameObject.AddComponent<LayoutElement>().preferredHeight = 66f * k;
+            var labelArea = MakePanel(row, "Label", Vector2.zero, new Vector2(0.56f, 1f), new Vector2(0f, 0.5f),
+                                      Vector2.zero, Vector2.zero, Color.clear);
+            labelArea.offsetMin = Vector2.zero;
+            labelArea.offsetMax = Vector2.zero;
+            MakeLabel(labelArea, "Отряд 1 · оборона · 5/5", Mathf.RoundToInt(27 * k), TextAlignmentOptions.MidlineLeft);
+            var button = MakeStretchButton(row, "Reinforce", "Пополнить +2 · 120", new Vector2(0.57f, 0.08f), new Vector2(1f, 0.92f),
+                                           Vector2.zero, Vector2.zero, AccentColor);
+            button.GetComponentInChildren<TMP_Text>().fontSize = Mathf.RoundToInt(27 * k);
+
+            var note = MakeLabel(panel, "Отрядов нет — наймите в казармах", Mathf.RoundToInt(27 * k), TextAlignmentOptions.MidlineLeft);
+            note.gameObject.AddComponent<LayoutElement>().preferredHeight = 40f * k;
+
+            so.FindProperty("reinforcePanel").objectReferenceValue = panel.gameObject;
+            so.FindProperty("reinforceRowTemplate").objectReferenceValue = row;
+            so.FindProperty("reinforceNote").objectReferenceValue = note;
+            so.FindProperty("reinforceMaxRows").intValue = mobile ? 4 : 6;
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         static bool NeedsCombatControls(GameHud hud)

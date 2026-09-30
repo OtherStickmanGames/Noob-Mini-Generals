@@ -21,6 +21,11 @@ namespace Generals
         public const int SquadSize = 5;
         public const int SquadCost = 250;
         public const float SquadHireTime = 25f;
+
+        // Пополнение отряда в пункте подкрепления: за каждого недостающего бойца. Дороже доли
+        // отряда (50), чтобы пополнять было не выгоднее, чем нанимать новый отряд
+        public const int ReinforceCost = 60;
+        public const float ReinforceTime = 6f;
         public const float InfantryHealth = 100f;
         public const float InfantrySpeed = 3.2f;
 

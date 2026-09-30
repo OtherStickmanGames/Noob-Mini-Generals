@@ -43,6 +43,22 @@ namespace Generals.EditorTools
                 mobile = Build();
                 Debug.Log("[HUD] Собран мобильный интерфейс " + PrefabPath);
             }
+            else if (NeedsReinforceControls(mobile.GetComponent<GameHud>()))
+            {
+                // Уже собранный мобильный интерфейс дополняется новыми элементами, ручные правки сохраняются
+                var contents = PrefabUtility.LoadPrefabContents(PrefabPath);
+                try
+                {
+                    AddReinforceControls(contents, true);
+                    PrefabUtility.SaveAsPrefabAsset(contents, PrefabPath);
+                    Debug.Log("[HUD] В мобильный интерфейс добавлен список отрядов пункта подкрепления");
+                }
+                finally
+                {
+                    PrefabUtility.UnloadPrefabContents(contents);
+                }
+                mobile = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
+            }
 
             var pc = AssetDatabase.LoadAssetAtPath<GameObject>(HudPrefabBuilder.PrefabPath);
             if (pc == null || pc.GetComponent<GameHud>() is not { } pcHud)
@@ -244,6 +260,8 @@ namespace Generals.EditorTools
             so.FindProperty("lookAroundButton").objectReferenceValue = lookAround;
             so.FindProperty("resultsButton").objectReferenceValue = results;
             so.ApplyModifiedPropertiesWithoutUndo();
+
+            AddReinforceControls(root, true);
 
             Directory.CreateDirectory(Path.GetDirectoryName(PrefabPath));
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);

@@ -26,6 +26,7 @@ namespace Generals
                 StructureType.Extractor => Extractor(team),
                 StructureType.Mine => Mine(team),
                 StructureType.Barracks => Barracks(team),
+                StructureType.ReinforcementPoint => ReinforcementPoint(team),
                 _ => Turret(team),
             });
         }
@@ -40,6 +41,7 @@ namespace Generals
             StructureType.Extractor => Extractor(team),
             StructureType.Mine => Mine(team),
             StructureType.Barracks => Barracks(team),
+            StructureType.ReinforcementPoint => ReinforcementPoint(team),
             _ => TurretBaseModel(team),
         };
 
@@ -116,6 +118,28 @@ namespace Generals
             m.Box(0, 8, 0, 6, 1, 1, color);            // полосы цвета команды
             m.Box(0, 8, 5, 6, 1, 1, color);
             m.Box(2, 2, 2, 2, 8, 2, Metal);            // бур
+            return m;
+        }
+
+        // Пункт подкрепления: палатка цвета команды, ящики со снаряжением и флагшток
+        static Model ReinforcementPoint(int team)
+        {
+            byte color = TeamColor(team), dark = TeamColorDark(team);
+            var m = new Model(10, 14, 10);
+            m.Box(0, 0, 0, 10, 1, 10, Stone);           // площадка
+            // Палатка: стенки и двускатный верх вдоль z
+            m.Box(1, 1, 1, 6, 3, 6, dark);
+            for (int i = 0; i < 3; i++)
+                m.Box(1 + i, 4 + i, 1, 6 - i * 2, 1, 6, color);
+            m.Box(3, 1, 6, 2, 2, 1, Wood);              // вход (+z)
+            // Ящики
+            m.Box(8, 1, 1, 2, 2, 2, Wood);
+            m.Box(8, 1, 4, 2, 1, 2, Metal);
+            m.Box(8, 3, 1, 1, 1, 1, Metal);
+            // Флагшток с флагом команды
+            m.Box(8, 1, 8, 1, 13, 1, Wood);
+            m.Box(9, 10, 8, 1, 3, 1, color);
+            m.Box(7, 11, 8, 1, 2, 1, color);
             return m;
         }
 
