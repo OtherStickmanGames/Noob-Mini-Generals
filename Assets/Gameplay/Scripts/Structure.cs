@@ -10,7 +10,7 @@ namespace Generals
     /// после постройки приносит доход. Вырезает себя из навмеша. Получает урон; при нуле прочности
     /// рушится (MatchManager.StructureDestroyed освобождает клетки, главное здание решает исход боя).
     /// </summary>
-    public class Structure : MonoBehaviour, IDamageable
+    public class Structure : MonoBehaviour, IAreaTarget
     {
         public StructureDef Def { get; private set; }
         public Faction Faction { get; private set; }
@@ -39,6 +39,7 @@ namespace Generals
         Transform holder;
         BoxCollider box;
         float modelHeight;
+        DestructibleModel destructible;
 
         public void Init(StructureDef def, Faction faction, int2 minCell, Vector3 center, float cellSize,
                          float rotationY, bool built, CapturePoint capturePoint, Material material)
@@ -55,8 +56,9 @@ namespace Generals
 
             // Высота — по модели целиком; у турели на основании потом встаёт поворотная башня
             modelHeight = VoxelModels.Size(VoxelModels.Structure(def.type, faction.team)).y * VoxelModels.VoxelSize;
-            var mesh = def.type == StructureType.Turret ? VoxelModels.TurretBase(faction.team) : VoxelModels.Structure(def.type, faction.team);
-            var size = VoxelModels.Size(mesh);
+            // Своя копия вокселей: от попаданий здание крошится
+            var body = VoxelModels.StructureBody(def.type, faction.team);
+            var size = body.Size;
 
             // Держатель поворачивается, модель внутри сдвинута так, чтобы центр был в нуле
             holder = new GameObject("Holder").transform;
@@ -67,7 +69,7 @@ namespace Generals
             model.transform.SetParent(holder, false);
             model.transform.localScale = Vector3.one * VoxelModels.VoxelSize;
             model.transform.localPosition = new Vector3(-size.x, 0f, -size.z) * (VoxelModels.VoxelSize * 0.5f);
-            model.AddComponent<MeshFilter>().sharedMesh = mesh;
+            destructible = new DestructibleModel(body, model.transform, model.AddComponent<MeshFilter>(), name);
             model.AddComponent<MeshRenderer>().sharedMaterial = material;
 
             // Коллайдер для тапа по зданию и попаданий
@@ -160,71 +162,56 @@ namespace Generals
             }
         }
 
+        // Выбитые за кадр воксели — одной пересборкой меша
+        void LateUpdate()
+        {
+            destructible.RebuildIfDirty();
+        }
+
+        void OnDestroy()
+        {
+            destructible?.Dispose();
+        }
+
         // ---------- Бой ----------
 
-        public void TakeDamage(float amount)
+        public void TakeDamage(float amount, Vector3 point, Vector3 direction)
         {
             if (!IsAlive)
                 return;
 
             Health -= amount;
             LastDamageTime = Time.time;
-            if (Health <= 0f)
+            var effects = MatchManager.Instance.Effects;
+            if (Health > 0f)
             {
-                Health = 0f;
-                MatchManager.Instance.StructureDestroyed(this);
-                MatchManager.Instance.Effects.StructureDestroyed(transform.position, HalfExtents, box.size.y, Faction.team);
-                Destroy(gameObject);
+                // Крошится там, куда попали: чем меньше прочности, тем больше выбито
+                destructible.Damage(point, direction, 1f - Health / MaxHealth, effects);
+                return;
             }
+
+            Health = 0f;
+            MatchManager.Instance.StructureDestroyed(this);
+            effects.StructureDestroyed(transform.position, HalfExtents, box.size.y);
+            destructible.Shatter(effects);
+            Destroy(gameObject);
         }
 
         /// <summary>Бойцы целятся в ближайший к ним край здания на уровне груди</summary>
-        public Vector3 AimPoint(Vector3 from)
-        {
-            var edge = ClosestEdgePoint(from, -0.15f);
-            float visible = box.size.y;
-            edge.y = transform.position.y + Mathf.Min(visible * 0.5f, 1.2f);
-            return edge;
-        }
+        public Vector3 AimPoint(Vector3 from) => Combat.AreaAimPoint(this, from, box.size.y);
 
         /// <summary>Промах — в землю у стены здания со стороны стрелка, чуть вбок</summary>
-        public Vector3 MissPoint(Vector3 from)
-        {
-            var edge = ClosestEdgePoint(from, Random.Range(0.3f, 1.2f));
-            var side = Vector3.Cross(Vector3.up, (edge - from).normalized);
-            edge += side * Random.Range(-1.2f, 1.2f);
-            edge.y = transform.position.y - 0.1f;
-            return edge;
-        }
+        public Vector3 MissPoint(Vector3 from) => Combat.AreaMissPoint(this, from);
+
+        public Vector3 ClosestSurfacePoint(Vector3 from) => Combat.AreaSurfacePoint(this, from, box.size.y);
 
         // ---------- Геометрия ----------
 
         /// <summary>Ближайшая к точке позиция на краю здания с отступом</summary>
-        public Vector3 ClosestEdgePoint(Vector3 from, float margin)
-        {
-            var c = transform.position;
-            float hx = HalfExtents.x + margin, hz = HalfExtents.y + margin;
-            var p = new Vector3(Mathf.Clamp(from.x, c.x - hx, c.x + hx), c.y, Mathf.Clamp(from.z, c.z - hz, c.z + hz));
-
-            // Точка внутри прямоугольника — выталкиваем на ближайшую сторону
-            float dx = hx - Mathf.Abs(p.x - c.x), dz = hz - Mathf.Abs(p.z - c.z);
-            if (dx > 0f && dz > 0f)
-            {
-                if (dx < dz)
-                    p.x = c.x + Mathf.Sign(p.x - c.x + 0.0001f) * hx;
-                else
-                    p.z = c.z + Mathf.Sign(p.z - c.z + 0.0001f) * hz;
-            }
-            return p;
-        }
+        public Vector3 ClosestEdgePoint(Vector3 from, float margin) =>
+            Combat.RectEdgePoint(transform.position, HalfExtents, from, margin);
 
         /// <summary>Расстояние по горизонтали от точки до прямоугольника здания</summary>
-        public float DistanceTo(Vector3 point)
-        {
-            var c = transform.position;
-            float dx = Mathf.Max(0f, Mathf.Abs(point.x - c.x) - HalfExtents.x);
-            float dz = Mathf.Max(0f, Mathf.Abs(point.z - c.z) - HalfExtents.y);
-            return Mathf.Sqrt(dx * dx + dz * dz);
-        }
+        public float DistanceTo(Vector3 point) => Combat.RectDistance(transform.position, HalfExtents, point);
     }
 }

@@ -59,6 +59,7 @@ namespace Generals
             Effects = gameObject.AddComponent<Effects>();
             Projectiles = gameObject.AddComponent<Projectiles>();
             Projectiles.Init(arena, Effects);
+            slotPath = new NavMeshPath();
             arena.Generated += Arena_Generated;
         }
 
@@ -110,6 +111,245 @@ namespace Generals
                 if (Grid.FindNearest(faction, extractorDef, baseCell, 12, out var extractorMin))
                     PlaceStructure(faction, extractorDef, extractorMin, true, null);
             }
+
+            CreateWallSegments();
+        }
+
+        // ---------- Стены ----------
+
+        readonly Dictionary<int2, WallSegment> wallByCell = new();
+
+        // Стены баз режутся на участки-квадраты: у каждого своя прочность, по ним стреляют
+        void CreateWallSegments()
+        {
+            wallByCell.Clear();
+            attackSlots.Clear();
+            var layout = arena.Layout;
+            var groups = new Dictionary<int3, List<int2>>();
+            foreach (var wall in layout.walls)
+            {
+                int team = layout.baseArea[wall.cell.y * layout.sizeX + wall.cell.x] - 1;
+                if (team < 0)
+                    continue;
+                var key = new int3(wall.cell / StructureCatalog.WallSegmentCells, team);
+                if (!groups.TryGetValue(key, out var cells))
+                    groups[key] = cells = new List<int2>();
+                cells.Add(wall.cell);
+            }
+
+            foreach (var (key, cells) in groups)
+            {
+                var go = new GameObject();
+                spawned.Add(go);
+                var segment = go.AddComponent<WallSegment>();
+                var faction = GetFaction(key.z);
+                segment.Init(faction, arena, cells);
+                faction.walls.Add(segment);
+                foreach (var cell in cells)
+                    wallByCell[cell] = segment;
+            }
+        }
+
+        /// <summary>Живой участок стены, которому принадлежит воксель стены в точке; иначе null</summary>
+        public WallSegment WallSegmentAt(Vector3 world)
+        {
+            var voxel = (int3)math.floor(arena.WorldToVoxel(world));
+            if (arena.GetBlock(voxel) != VoxelBlocks.Wall)
+                return null;
+            return wallByCell.TryGetValue(voxel.xz, out var segment) && segment != null && segment.IsAlive ? segment : null;
+        }
+
+        /// <summary>Участок стены обрушился (вызывает сам участок перед уничтожением)</summary>
+        public void WallSegmentDestroyed(WallSegment segment)
+        {
+            segment.Faction.walls.Remove(segment);
+            foreach (var cell in segment.Cells)
+                if (wallByCell.TryGetValue(cell, out var s) && s == segment)
+                    wallByCell.Remove(cell);
+            attackSlots.Remove(segment);
+
+            // Турель на этом участке стены падает вместе с ним
+            var cells = new HashSet<int2>(segment.Cells);
+            foreach (var structure in segment.Faction.structures.ToArray())
+            {
+                if (structure.Def.type != StructureType.Turret || !structure.IsAlive)
+                    continue;
+                bool onSegment = false;
+                for (int z = 0; z < structure.Def.footprint.y && !onSegment; z++)
+                    for (int x = 0; x < structure.Def.footprint.x && !onSegment; x++)
+                        onSegment = cells.Contains(structure.MinCell + new int2(x, z));
+                if (onSegment)
+                    structure.TakeDamage(structure.Health + 1f, structure.transform.position, Vector3.down);
+            }
+        }
+
+        // ---------- Цели атаки ----------
+
+        // Позиции бойцов вокруг цели, чтобы они не толпились в одной точке (например, в воротах)
+        readonly Dictionary<IAreaTarget, List<(InfantryUnit unit, Vector3 point)>> attackSlots = new();
+
+        /// <summary>Сколько бойцов уже атакует цель</summary>
+        public int AttackersOf(IAreaTarget target) =>
+            attackSlots.TryGetValue(target, out var list) ? list.Count : 0;
+
+        /// <summary>
+        /// Цель атакующего бойца: случайная из ближайших построек врага — зданий и участков стены.
+        /// Ближе — вероятнее, здание вдвое вероятнее участка стены, цель, которую уже бьют многие,
+        /// менее вероятна. Так отряд расходится по целям, а в пролом видят казармы.
+        /// </summary>
+        public IAreaTarget ChooseAttackTarget(InfantryUnit unit, IAreaTarget exclude)
+        {
+            var enemy = GetFaction(1 - unit.Faction.team);
+            var position = unit.transform.position;
+            candidateTargets.Clear();
+
+            float nearest = float.MaxValue;
+            foreach (var s in enemy.structures)
+                if (Combat.IsAlive(s) && (IAreaTarget)s != exclude)
+                    nearest = Mathf.Min(nearest, s.DistanceTo(position));
+            foreach (var w in enemy.walls)
+                if (Combat.IsAlive(w) && (IAreaTarget)w != exclude)
+                    nearest = Mathf.Min(nearest, w.DistanceTo(position));
+            if (nearest == float.MaxValue)
+                return null;
+
+            float total = 0f;
+            foreach (var s in enemy.structures)
+                if (Combat.IsAlive(s) && (IAreaTarget)s != exclude)
+                    total += AddCandidate(s, s.DistanceTo(position) - nearest, 2f);
+            foreach (var w in enemy.walls)
+                if (Combat.IsAlive(w) && (IAreaTarget)w != exclude)
+                    total += AddCandidate(w, w.DistanceTo(position) - nearest, 1f);
+
+            float roll = Random.value * total;
+            foreach (var (target, weight) in candidateTargets)
+            {
+                roll -= weight;
+                if (roll <= 0f)
+                    return target;
+            }
+            return candidateTargets[^1].target;
+        }
+
+        readonly List<(IAreaTarget target, float weight)> candidateTargets = new();
+        NavMeshPath slotPath;
+
+        float AddCandidate(IAreaTarget target, float extraDistance, float preference)
+        {
+            // Дальше ближайшей цели больше чем на AttackTargetWindow — не рассматриваем
+            if (extraDistance > UnitCatalog.AttackTargetWindow)
+                return 0f;
+            float closeness = 1f / (1f + extraDistance / 4f);
+            float weight = preference * closeness * closeness / (1f + 0.35f * AttackersOf(target));
+            candidateTargets.Add((target, weight));
+            return weight;
+        }
+
+        /// <summary>
+        /// Позиция для стрельбы по цели: на кольце вокруг неё на расстоянии ~60% дальности, на NavMesh,
+        /// с линией огня, не ближе 1.1 м к позициям других бойцов. Первой пробуется точка напротив
+        /// бойца, дальше — по очереди в обе стороны. avoid — позиция, в которой боец застрял.
+        /// </summary>
+        public bool ClaimAttackSlot(InfantryUnit unit, IAreaTarget target, float range, Vector3? avoid, out Vector3 slot)
+        {
+            ReleaseAttackSlot(unit, target);
+            if (!attackSlots.TryGetValue(target, out var claims))
+                attackSlots[target] = claims = new List<(InfantryUnit, Vector3)>();
+            claims.RemoveAll(c => c.unit == null);
+
+            float offset = Mathf.Clamp(range * 0.6f, 2f, range - 1f);
+            var half = target.HalfExtents + new Vector2(offset, offset);
+            float perimeter = 4f * (half.x + half.y);
+            const float spacing = 1.2f;
+            int steps = Mathf.Max(8, Mathf.FloorToInt(perimeter / spacing));
+
+            // Точка периметра напротив бойца
+            float start = 0f, best = float.MaxValue;
+            for (int i = 0; i < steps; i++)
+            {
+                float s = i * perimeter / steps;
+                float d = (PerimeterPoint(target.transform.position, half, s) - unit.transform.position).sqrMagnitude;
+                if (d < best)
+                {
+                    best = d;
+                    start = s;
+                }
+            }
+
+            for (int k = 0; k < steps; k++)
+            {
+                // 0, +1, -1, +2, -2 ...
+                int n = (k + 1) / 2 * (k % 2 == 0 ? -1 : 1);
+                float s = Mathf.Repeat(start + n * perimeter / steps, perimeter);
+                var p = PerimeterPoint(target.transform.position, half, s);
+
+                if (!NavMesh.SamplePosition(p, out var hit, 1.2f, NavMesh.AllAreas))
+                    continue;
+                var point = hit.position;
+                if (avoid.HasValue && (point - avoid.Value).sqrMagnitude < 2.25f)
+                    continue;
+                // В воротах не стоять — через них идут остальные
+                if (InGateway(point, target.Faction))
+                    continue;
+
+                bool taken = false;
+                foreach (var c in claims)
+                {
+                    if ((c.point - point).sqrMagnitude < 1.1f * 1.1f)
+                    {
+                        taken = true;
+                        break;
+                    }
+                }
+                if (taken || target.DistanceTo(point) > range * 0.9f)
+                    continue;
+                if (!Combat.HasLineOfFire(point + Vector3.up * InfantryUnit.ChestHeight, target, unit.Faction))
+                    continue;
+                // Дойти можно (не верх стены и не отрезанный кусок NavMesh)
+                if (!NavMesh.CalculatePath(unit.transform.position, point, NavMesh.AllAreas, slotPath) ||
+                    slotPath.status != NavMeshPathStatus.PathComplete)
+                    continue;
+
+                claims.Add((unit, point));
+                slot = point;
+                return true;
+            }
+
+            slot = default;
+            return false;
+        }
+
+        // Проход ворот базы: от точки снаружи ворот внутрь на толщину стены и чуть дальше
+        bool InGateway(Vector3 point, Faction faction)
+        {
+            var gate = GateOf(faction);
+            var center = faction.team == 0 ? arena.BaseOne : arena.BaseTwo;
+            var inward = center - gate;
+            inward.y = 0f;
+            inward.Normalize();
+            var delta = point - gate;
+            delta.y = 0f;
+            float along = Vector3.Dot(delta, inward);
+            float across = Vector3.Cross(inward, delta).y;
+            return along > -2.5f && along < 4.5f && Mathf.Abs(across) < 3f;
+        }
+
+        public void ReleaseAttackSlot(InfantryUnit unit, IAreaTarget target)
+        {
+            if (target != null && attackSlots.TryGetValue(target, out var claims))
+                claims.RemoveAll(c => c.unit == unit || c.unit == null);
+        }
+
+        // Точка на периметре прямоугольника по длине дуги s (обход против часовой)
+        static Vector3 PerimeterPoint(Vector3 center, Vector2 half, float s)
+        {
+            float w = half.x * 2f, h = half.y * 2f;
+            Vector2 p;
+            if (s < w) p = new Vector2(-half.x + s, -half.y);
+            else if ((s -= w) < h) p = new Vector2(half.x, -half.y + s);
+            else if ((s -= h) < w) p = new Vector2(half.x - s, half.y);
+            else p = new Vector2(-half.x, half.y - (s - w));
+            return center + new Vector3(p.x, 0f, p.y);
         }
 
         void Update()
@@ -189,6 +429,7 @@ namespace Generals
             var faction = structure.Faction;
             faction.structures.Remove(structure);
             faction.structuresLost++;
+            attackSlots.Remove(structure);
             Grid.SetOccupied(structure.MinCell, structure.Def.footprint, false);
 
             if (structure.CapturePoint != null && structure.CapturePoint.Mine == structure)

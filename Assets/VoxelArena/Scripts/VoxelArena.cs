@@ -266,6 +266,32 @@ public class VoxelArena : MonoBehaviour
         return removed;
     }
 
+    /// <summary>Блок в вокселе; вне арены — Air</summary>
+    public byte GetBlock(int3 voxel)
+    {
+        if (math.any(voxel < 0) || math.any(voxel >= dims))
+            return VoxelBlocks.Air;
+        return voxels[VoxelIndex(voxel.x, voxel.y, voxel.z)];
+    }
+
+    /// <summary>Выбить перечисленные воксели (например, обрушить участок стены)</summary>
+    public void ClearVoxels(IReadOnlyList<int3> cells)
+    {
+        if (cells.Count == 0)
+            return;
+        int3 min = dims, max = int3.zero;
+        foreach (var c in cells)
+        {
+            if (math.any(c < 0) || math.any(c >= dims))
+                continue;
+            voxels[VoxelIndex(c.x, c.y, c.z)] = VoxelBlocks.Air;
+            min = math.min(min, c);
+            max = math.max(max, c);
+        }
+        if (math.all(min <= max))
+            MarkVoxelRangeDirty(min, max);
+    }
+
     public float3 WorldToVoxel(Vector3 world)
     {
         return (float3)((world - transform.position) / voxelSize);

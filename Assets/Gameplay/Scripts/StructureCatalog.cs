@@ -113,6 +113,10 @@ namespace Generals
         public const float CapturePointIncome = 0.5f;        // ценный — за захваченную точку
         public const float MineIncome = 1.5f;                // ценный — с шахты на своей точке захвата
 
+        // Стены: участок — квадрат клеток такого размера, у него своя прочность
+        public const int WallSegmentCells = 4;
+        public const float WallSegmentHealth = 400f;
+
         public const int BuilderCost = 50;
         public const float BuilderHireTime = 8f;
     }

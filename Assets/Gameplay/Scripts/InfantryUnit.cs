@@ -14,7 +14,9 @@ namespace Generals
     {
         const float ThinkInterval = 0.25f;
         const float RepathDistance = 0.75f;
-        const float ChestHeight = 1.05f;
+        public const float ChestHeight = 1.05f;
+        /// <summary>Сколько секунд почти без движения по пути считается «застрял»</summary>
+        const float StuckTime = 1.5f;
         /// <summary>Стреляет, только довернувшись к цели точнее этого, градусы</summary>
         const float FireAngle = 20f;
 
@@ -39,7 +41,13 @@ namespace Generals
         BarracksBehavior ownBehavior;
         float thinkTimer;
         float navCheckTimer;
+        float stuckTime;
         Vector3 destination = new(float.MaxValue, 0f, 0f);
+
+        // Атака построек: цель и своя позиция вокруг неё
+        IAreaTarget attackTarget;
+        bool hasSlot;
+        Vector3 slot;
 
         public void Init(Faction faction, Barracks barracks, BarracksBehavior behavior, Material material)
         {
@@ -85,6 +93,7 @@ namespace Generals
             thinkTimer = 0f;
             Target = null;
             Firing = false;
+            SetAttackTarget(null);
         }
 
         /// <summary>Казармы разрушены: боец остаётся с их последним поведением</summary>
@@ -102,6 +111,7 @@ namespace Generals
                 return;
 
             KeepOnNavMesh();
+            CheckStuck();
             weapon.Tick(Time.deltaTime);
 
             thinkTimer -= Time.deltaTime;
@@ -142,7 +152,7 @@ namespace Generals
                 return;
             }
 
-            // Атака: бойцы рядом важнее зданий, из зданий — ближайшее
+            // Атака: бойцы рядом важнее построек
             var unit = NearestEnemyUnit(enemy, transform.position, UnitCatalog.InfantrySight);
             if (unit != null)
             {
@@ -150,11 +160,83 @@ namespace Generals
                 return;
             }
 
-            var structure = NearestEnemyStructure(enemy);
-            if (structure != null)
-                Engage(structure);
+            // Постройка — случайная из ближайших (здание или участок стены), бьём до разрушения
+            if (!Combat.IsAlive(attackTarget))
+                SetAttackTarget(match.ChooseAttackTarget(this, null));
+            if (attackTarget != null)
+                EngageArea(attackTarget);
             else
                 Hold(transform.position);
+        }
+
+        void SetAttackTarget(IAreaTarget target)
+        {
+            if (hasSlot)
+                MatchManager.Instance.ReleaseAttackSlot(this, attackTarget);
+            hasSlot = false;
+            attackTarget = target;
+        }
+
+        // Постройку бьют со своей позиции вокруг неё (MatchManager.ClaimAttackSlot): так отряд
+        // расходится кольцом и не встаёт толпой в воротах, загораживая проход остальным
+        void EngageArea(IAreaTarget target)
+        {
+            var match = MatchManager.Instance;
+            Target = target;
+
+            if (!hasSlot)
+            {
+                hasSlot = match.ClaimAttackSlot(this, target, weapon.Def.range, null, out slot);
+                if (!hasSlot)
+                {
+                    // Вокруг этой цели места нет (всё занято или не видно) — в следующий раз другая
+                    SetAttackTarget(match.ChooseAttackTarget(this, target));
+                    Firing = false;
+                    MoveTo(target.ClosestEdgePoint(transform.position, 1f));
+                    return;
+                }
+            }
+
+            if ((Flat(slot) - Flat(transform.position)).sqrMagnitude < 0.7f * 0.7f)
+            {
+                if (Combat.HasLineOfFire(Muzzle, target, Faction))
+                {
+                    Firing = true;
+                    if (agent.isOnNavMesh)
+                        agent.isStopped = true;
+                    return;
+                }
+                // С позиции цель больше не видно (что-то изменилось) — искать другую позицию
+                match.ReleaseAttackSlot(this, target);
+                hasSlot = false;
+            }
+
+            Firing = false;
+            MoveTo(slot);
+        }
+
+        // Боец идёт, но почти не движется (упёрся в других) — дольше StuckTime: другая позиция
+        void CheckStuck()
+        {
+            bool moving = !Firing && agent.isOnNavMesh && !agent.isStopped && !agent.pathPending &&
+                          agent.hasPath && agent.remainingDistance > 0.8f;
+            if (!moving || agent.velocity.sqrMagnitude > 0.3f * 0.3f)
+            {
+                stuckTime = 0f;
+                return;
+            }
+
+            stuckTime += Time.deltaTime;
+            if (stuckTime < StuckTime)
+                return;
+            stuckTime = 0f;
+
+            destination = new Vector3(float.MaxValue, 0f, 0f);
+            if (hasSlot && Combat.IsAlive(attackTarget))
+            {
+                var old = slot;
+                hasSlot = MatchManager.Instance.ClaimAttackSlot(this, attackTarget, weapon.Def.range, old, out slot);
+            }
         }
 
         InfantryUnit NearestEnemyUnit(Faction enemy, Vector3 around, float radius)
@@ -175,33 +257,11 @@ namespace Generals
             return best;
         }
 
-        Structure NearestEnemyStructure(Faction enemy)
-        {
-            Structure best = null;
-            float bestDistance = float.MaxValue;
-            foreach (var s in enemy.structures)
-            {
-                if (!Combat.IsAlive(s))
-                    continue;
-                float d = s.DistanceTo(transform.position);
-                if (d < bestDistance)
-                {
-                    best = s;
-                    bestDistance = d;
-                }
-            }
-            return best;
-        }
-
-        // На дальности и с линией огня — встать и стрелять; иначе подойти ближе
-        void Engage(IDamageable target)
+        // Боец противника: на дальности и с линией огня — встать и стрелять; иначе подойти ближе
+        void Engage(InfantryUnit target)
         {
             Target = target;
-            var structure = target as Structure;
-            float distance = structure != null
-                ? structure.DistanceTo(transform.position)
-                : Vector3.Distance(Flat(target.transform.position), Flat(transform.position));
-
+            float distance = Vector3.Distance(Flat(target.transform.position), Flat(transform.position));
             if (distance <= weapon.Def.range * 0.9f && Combat.HasLineOfFire(Muzzle, target, Faction))
             {
                 Firing = true;
@@ -211,7 +271,7 @@ namespace Generals
             }
 
             Firing = false;
-            MoveTo(structure != null ? structure.ClosestEdgePoint(transform.position, 0.6f) : target.transform.position);
+            MoveTo(target.transform.position);
         }
 
         void Hold(Vector3 point)
@@ -262,7 +322,7 @@ namespace Generals
             return transform.position + new Vector3(offset.x, -0.05f, offset.y);
         }
 
-        public void TakeDamage(float amount)
+        public void TakeDamage(float amount, Vector3 point, Vector3 direction)
         {
             if (!IsAlive)
                 return;
@@ -282,6 +342,8 @@ namespace Generals
         void OnDestroy()
         {
             Faction?.units.Remove(this);
+            if (hasSlot && MatchManager.Instance != null)
+                MatchManager.Instance.ReleaseAttackSlot(this, attackTarget);
         }
     }
 }

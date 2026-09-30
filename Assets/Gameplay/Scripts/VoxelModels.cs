@@ -30,6 +30,19 @@ namespace Generals
             });
         }
 
+        /// <summary>
+        /// Свежая сетка вокселей тела здания — своя у каждого здания, из неё выбиваются воксели
+        /// при попаданиях. У турели — только основание (башня отдельно и поворачивается).
+        /// </summary>
+        public static Model StructureBody(StructureType type, int team) => type switch
+        {
+            StructureType.Headquarters => Headquarters(team),
+            StructureType.Extractor => Extractor(team),
+            StructureType.Mine => Mine(team),
+            StructureType.Barracks => Barracks(team),
+            _ => TurretBaseModel(team),
+        };
+
         public static Mesh Builder(int team) => Get($"Builder_{team}", () => BuilderModel(team));
 
         public static Mesh Infantry(int team) => Get($"Infantry_{team}", () => InfantryModel(team));
@@ -135,12 +148,14 @@ namespace Generals
         /// <summary>Ось поворота башни в вокселях модели башни (центр её корпуса 3×3)</summary>
         public static readonly Vector3 TurretHeadPivot = new(1.5f, 0f, 1.5f);
 
-        public static Mesh TurretBase(int team) => Get($"TurretBase_{team}", () =>
+        public static Mesh TurretBase(int team) => Get($"TurretBase_{team}", () => TurretBaseModel(team));
+
+        static Model TurretBaseModel(int team)
         {
             var m = new Model(4, TurretBaseHeight, 4);
             TurretBaseBoxes(m, team);
             return m;
-        });
+        }
 
         /// <summary>Поворотная башня: корпус 3×3 и ствол в +z</summary>
         public static Mesh TurretHead(int team) => Get($"TurretHead_{team}", () =>
@@ -200,7 +215,8 @@ namespace Generals
 
         // ---------- Сетка модели ----------
 
-        class Model
+        /// <summary>Сетка вокселей модели: блоки, как у арены (0 — пусто)</summary>
+        public class Model
         {
             readonly int3 size;
             readonly byte[] voxels;
@@ -210,6 +226,23 @@ namespace Generals
                 size = new int3(x, y, z);
                 voxels = new byte[x * y * z];
             }
+
+            Model(int3 size, byte[] voxels)
+            {
+                this.size = size;
+                this.voxels = voxels;
+            }
+
+            public int3 Size => size;
+            /// <summary>Воксели, индекс (y * size.z + z) * size.x + x</summary>
+            public byte[] Voxels => voxels;
+
+            public int Index(int x, int y, int z) => (y * size.z + z) * size.x + x;
+
+            public int3 Coord(int index) =>
+                new(index % size.x, index / (size.x * size.z), index / size.x % size.z);
+
+            public Model Clone() => new(size, (byte[])voxels.Clone());
 
             public void Box(int x, int y, int z, int w, int h, int d, byte block)
             {
@@ -221,6 +254,14 @@ namespace Generals
             }
 
             public Mesh ToMesh(string name)
+            {
+                var mesh = new Mesh { name = name, indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+                WriteMesh(mesh);
+                return mesh;
+            }
+
+            /// <summary>Пересобрать меш заново в тот же объект Mesh (здание с выбитыми вокселями)</summary>
+            public void WriteMesh(Mesh mesh)
             {
                 int chunk = math.cmax(size);
                 var data = new NativeArray<byte>(voxels, Allocator.TempJob);
@@ -246,7 +287,7 @@ namespace Generals
                 .Schedule()
                 .Complete();
 
-                var mesh = new Mesh { name = name, indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+                mesh.Clear();
                 mesh.SetVertices(positions.AsArray());
                 mesh.SetNormals(normals.AsArray());
                 mesh.SetColors(colors.AsArray());
@@ -259,7 +300,6 @@ namespace Generals
                 normals.Dispose();
                 colors.Dispose();
                 indices.Dispose();
-                return mesh;
             }
         }
     }

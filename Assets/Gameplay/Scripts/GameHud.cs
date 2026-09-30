@@ -330,6 +330,8 @@ namespace Generals
                 {
                     foreach (var s in faction.structures)
                         UpdateHealthBar(s);
+                    foreach (var w in faction.walls)
+                        UpdateHealthBar(w);
                     foreach (var u in faction.units)
                         UpdateHealthBar(u);
                 }
@@ -356,9 +358,10 @@ namespace Generals
             if (!recent && !ReferenceEquals(target, selected))
                 return;
 
-            var structure = target as Structure;
-            var top = structure != null
-                ? structure.transform.position + Vector3.up * (structure.Height + 0.5f)
+            // Здание и участок стены — полоска шире и над их верхом; боец — короткая над головой
+            var area = target as IAreaTarget;
+            var top = area != null
+                ? area.transform.position + Vector3.up * (area.Height + 0.5f)
                 : target.transform.position + Vector3.up * 2.4f;
             var screen = rtsCamera.Camera.WorldToScreenPoint(top);
             if (screen.z <= 0f)
@@ -370,8 +373,8 @@ namespace Generals
                 bar = freeHealthBars.Count > 0 ? freeHealthBars.Pop() : CreateHealthBar();
                 healthBars.Add(target, bar);
                 bar.rect.gameObject.SetActive(true);
-                bar.rect.sizeDelta = structure != null
-                    ? new Vector2(Mathf.Clamp(structure.HalfExtents.x * 2f * 26f, 80f, 180f), 14f)
+                bar.rect.sizeDelta = area != null
+                    ? new Vector2(Mathf.Clamp(Mathf.Max(area.HalfExtents.x, area.HalfExtents.y) * 2f * 26f, 70f, 180f), 14f)
                     : new Vector2(50f, 9f);
                 bar.fillImage.color = target.Faction == Player ? ownHealthColor : enemyHealthColor;
             }

@@ -123,12 +123,19 @@ namespace Generals
             for (int k = 0; k < count; k++)
             {
                 var hit = hits[k];
-                var target = Combat.DamageableOf(hit.collider);
+                var target = Combat.DamageableAt(hit);
                 if (target != null)
                 {
-                    // Через своих и через уже убитых — насквозь
-                    if (target.Faction == shot.owner || !target.IsAlive)
+                    // Через уже убитых и через своих бойцов и здания — насквозь;
+                    // своя стена снаряд останавливает, но не получает урона и воронки
+                    if (!target.IsAlive)
                         continue;
+                    if (target.Faction == shot.owner)
+                    {
+                        if (target is not WallSegment)
+                            continue;
+                        target = null;
+                    }
                     Impact(shot, hit.point, hit.normal, target, false);
                     return true;
                 }
@@ -152,8 +159,12 @@ namespace Generals
 
             if (target != null)
             {
-                effects.HitSparks(point, normal, target is Structure ? VoxelBlocks.SlotWallSide : Effects.TeamSlot(target.Faction.team));
-                target.TakeDamage(shot.def.damage);
+                // Здание и стена крошатся сами — только искры; боец — искры и крошки его цвета
+                if (target is IAreaTarget)
+                    effects.HitSparks(point, normal, VoxelBlocks.SlotWallSide, false);
+                else
+                    effects.HitSparks(point, normal, Effects.TeamSlot(target.Faction.team));
+                target.TakeDamage(shot.def.damage, point, shot.direction);
             }
             else if (terrain)
             {
@@ -164,7 +175,8 @@ namespace Generals
             }
             else
             {
-                effects.HitSparks(point, normal, VoxelBlocks.SlotStoneSide);
+                // Своя стена или прочее препятствие
+                effects.HitSparks(point, normal, VoxelBlocks.SlotWallSide);
             }
         }
 
@@ -174,11 +186,12 @@ namespace Generals
             effects.Explosion(point, shot.def.splashRadius);
 
             if (target != null)
-                target.TakeDamage(shot.def.damage);
+                target.TakeDamage(shot.def.damage, point, shot.direction);
             if (shot.def.splashRadius > 0f)
                 Combat.Splash(point, shot.def.splashRadius, shot.def.damage, shot.owner, target);
 
-            // Воронка — от попадания в землю и стены; в здание — нет, иначе оно повиснет над ямой
+            // Воронка — от попадания в землю; здание и участок стены крошатся сами (урон выше),
+            // своя стена не страдает
             if (terrain)
             {
                 arena.Explode(point - normal * (shot.def.craterRadius * 0.4f), shot.def.craterRadius);

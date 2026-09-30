@@ -27,6 +27,12 @@ namespace Generals
         /// <summary>Защитник бросается на врага, подошедшего к посту ближе этого, м</summary>
         public const float DefendRadius = 18f;
 
+        /// <summary>
+        /// Атакующий выбирает цель случайно среди построек врага не дальше ближайшей больше чем на
+        /// столько метров
+        /// </summary>
+        public const float AttackTargetWindow = 12f;
+
         /// <summary>Сколько бойцов казармы могут держать в очереди найма</summary>
         public const int BarracksQueueLimit = 5;
     }

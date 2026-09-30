@@ -42,7 +42,7 @@ namespace Generals
             smokeMaterial = CreateMaterial("Smoke", Mode.Lit, Color.white, true);
             flashMaterial = CreateMaterial("Flash", Mode.Emissive, new Color(1f, 0.82f, 0.45f, 1f), false);
 
-            debris = CreateSystem("Обломки", debrisMaterial, 3000, 1f);
+            debris = CreateSystem("Обломки", debrisMaterial, 5000, 1f);
             var collision = debris.collision;
             collision.enabled = true;
             collision.type = ParticleSystemCollisionType.World;
@@ -99,10 +99,13 @@ namespace Generals
         }
 
         /// <summary>Попадание пули в бойца или здание: искры и крошки его цвета</summary>
-        public void HitSparks(Vector3 point, Vector3 normal, byte paletteSlot)
+        public void HitSparks(Vector3 point, Vector3 normal, byte paletteSlot, bool chips = true)
         {
             for (int i = 0; i < 2; i++)
                 Emit(flash, point, Combat.RandomInCone(normal, 60f) * Random.Range(2f, 4f), 0.06f, 0.08f, Color.white);
+            // Здания и стены крошатся сами (выбитые воксели) — крошки не нужны
+            if (!chips)
+                return;
             for (int i = 0; i < 3; i++)
                 EmitDebris(point + normal * 0.05f, Combat.RandomInCone(normal, 60f) * Random.Range(1.5f, 3.5f) + Vector3.up,
                            Random.Range(0.06f, 0.1f), paletteSlot, 0.9f);
@@ -155,36 +158,48 @@ namespace Generals
                 EmitSmoke(center + Random.insideUnitSphere * 0.3f, Vector3.up * 0.5f, Random.Range(0.3f, 0.45f), Random.Range(0.8f, 1.2f), 0.6f);
         }
 
-        /// <summary>
-        /// Разрушение здания: несколько взрывов по площади за полсекунды, гора обломков его цветов
-        /// и долгий дым. size — половина размера по x и z, height — высота модели.
-        /// </summary>
-        public void StructureDestroyed(Vector3 center, Vector2 halfExtents, float height, int team)
+        /// <summary>Кусок стены (воксель арены крупнее вокселя модели)</summary>
+        public void WallDebris(Vector3 position, Vector3 velocity)
         {
-            StartCoroutine(StructureDestroyedRoutine(center, halfExtents, height, team));
+            EmitDebris(position, velocity, Random.Range(0.3f, 0.45f), VoxelBlocks.SlotWallSide, Random.Range(2.5f, 4f));
         }
 
-        IEnumerator StructureDestroyedRoutine(Vector3 center, Vector2 half, float height, int team)
+        /// <summary>Облако пыли над обрушившимся участком стены</summary>
+        public void Dust(Vector3 center, Vector2 half, float height)
+        {
+            for (int i = 0; i < 10; i++)
+            {
+                var p = center + new Vector3(Random.Range(-half.x, half.x), Random.Range(0f, height), Random.Range(-half.y, half.y));
+                EmitSmoke(p, Random.insideUnitSphere * 0.6f + Vector3.up * 0.4f, Random.Range(0.5f, 0.9f),
+                          Random.Range(1.5f, 2.8f), 0.7f, DustColor);
+            }
+        }
+
+        /// <summary>Воксель, выбитый из здания: кубик размером с воксель модели</summary>
+        public void VoxelDebris(Vector3 position, Vector3 velocity, byte paletteSlot)
+        {
+            EmitDebris(position, velocity, VoxelModels.VoxelSize * Random.Range(0.85f, 1f), paletteSlot, Random.Range(2.5f, 4f));
+        }
+
+        /// <summary>
+        /// Разрушение здания: несколько взрывов по площади за полсекунды и долгий дым (сами
+        /// воксели здания разлетаются из DestructibleModel.Shatter). half — половина размера по x и z.
+        /// </summary>
+        public void StructureDestroyed(Vector3 center, Vector2 halfExtents, float height)
+        {
+            StartCoroutine(StructureDestroyedRoutine(center, halfExtents, height));
+        }
+
+        IEnumerator StructureDestroyedRoutine(Vector3 center, Vector2 half, float height)
         {
             float area = half.x * half.y * 4f;
             int blasts = Mathf.Clamp(Mathf.RoundToInt(area / 3f), 2, 6);
-            int chips = Mathf.Clamp(Mathf.RoundToInt(area * 10f), 30, 160);
-            byte color = TeamSlot(team), dark = TeamDarkSlot(team);
 
             for (int b = 0; b < blasts; b++)
             {
                 var point = center + new Vector3(Random.Range(-half.x, half.x) * 0.7f, Random.Range(0.2f, 0.8f) * height,
                                                  Random.Range(-half.y, half.y) * 0.7f);
                 Explosion(point, Mathf.Clamp(height * 0.45f, 0.8f, 1.8f));
-
-                for (int i = 0; i < chips / blasts; i++)
-                {
-                    float roll = Random.value;
-                    byte slot = roll < 0.35f ? VoxelBlocks.SlotWallSide : roll < 0.6f ? color : roll < 0.8f ? dark : VoxelBlocks.SlotStoneSide;
-                    var from = center + new Vector3(Random.Range(-half.x, half.x), Random.Range(0f, height), Random.Range(-half.y, half.y));
-                    var velocity = (from - center).normalized * Random.Range(1f, 4f) + Vector3.up * Random.Range(2f, 6f);
-                    EmitDebris(from, velocity, VoxelModels.VoxelSize * Random.Range(0.8f, 1.6f), slot, Random.Range(3f, 5f));
-                }
                 yield return new WaitForSeconds(Random.Range(0.08f, 0.15f));
             }
 
