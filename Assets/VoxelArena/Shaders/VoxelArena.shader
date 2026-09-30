@@ -10,8 +10,11 @@ Shader "NoobGenerals/VoxelArena"
         _AmbientStrength ("Сила окружающего света", Range(0, 2)) = 1
         [Header(Build mode)]
         _Tint ("Подкраска (альфа — сила)", Color) = (1, 1, 1, 0)
-        [Toggle] _FadeWalls ("Стены прозрачнее при установке здания", Float) = 1
-        [Toggle] _FadeWhole ("Весь объект прозрачнее при установке здания", Float) = 0
+        [Toggle] _HideWalls ("Прятать стены при установке здания (их рисует прозрачный проход)", Float) = 1
+        _Alpha ("Непрозрачность", Range(0, 1)) = 1
+        [HideInInspector] _SrcBlend ("", Float) = 1
+        [HideInInspector] _DstBlend ("", Float) = 0
+        [HideInInspector] _ZWrite ("", Float) = 1
     }
 
     SubShader
@@ -26,26 +29,24 @@ Shader "NoobGenerals/VoxelArena"
             half _AOStrength;
             half _AmbientStrength;
             half4 _Tint;
-            half _FadeWalls;
-            half _FadeWhole;
+            half _HideWalls;
+            half _Alpha;
         CBUFFER_END
 
-        // Режим установки здания (глобальный ключ _VOXEL_BUILD_FADE): стены арены и готовые здания
-        // становятся полупрозрачными. Прозрачность — сеткой пикселей (дизеринг), поэтому остаётся
-        // непрозрачный проход без сортировки. Без ключа отсечения в шейдере нет.
-        float _VoxelBuildFade;
-
+        // Режим установки здания — глобальный ключ _VOXEL_BUILD_FADE. Непрозрачная земля в нём
+        // не рисует стены, а стены рисуются второй раз прозрачным материалом с ключом _WALLS_ONLY
+        // (он, наоборот, рисует только стены). Без ключей отсечения пикселей в шейдере нет.
         #define PALETTE_WALL_TOP 15
         #define PALETTE_WALL_SIDE 16
 
-        void BuildFadeClip(float4 positionCS, int paletteIndex)
+        void BuildModeClip(int paletteIndex)
         {
-        #if defined(_VOXEL_BUILD_FADE)
-            static const float bayer[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
             bool wall = paletteIndex == PALETTE_WALL_TOP || paletteIndex == PALETTE_WALL_SIDE;
-            half fade = _VoxelBuildFade * max(_FadeWhole, wall ? _FadeWalls : 0);
-            uint2 p = (uint2)positionCS.xy & 3;
-            clip((bayer[p.y * 4 + p.x] + 0.5) / 16.0 - fade);
+        #if defined(_VOXEL_BUILD_FADE)
+            clip(wall && _HideWalls > 0.5 ? -1 : 1);
+        #endif
+        #if defined(_WALLS_ONLY)
+            clip(wall ? 1 : -1);
         #endif
         }
         ENDHLSL
@@ -55,6 +56,9 @@ Shader "NoobGenerals/VoxelArena"
             Name "ForwardLit"
             Tags { "LightMode" = "UniversalForward" }
 
+            Blend [_SrcBlend] [_DstBlend]
+            ZWrite [_ZWrite]
+
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -62,6 +66,7 @@ Shader "NoobGenerals/VoxelArena"
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
             #pragma multi_compile_fog
             #pragma multi_compile _ _VOXEL_BUILD_FADE
+            #pragma multi_compile_local _ _WALLS_ONLY
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
@@ -108,7 +113,7 @@ Shader "NoobGenerals/VoxelArena"
                 float3 normalWS = normalize(input.normalWS);
 
                 int paletteIndex = (int)round(input.color.r * 255.0);
-                BuildFadeClip(input.positionCS, paletteIndex);
+                BuildModeClip(paletteIndex);
                 half3 albedo = LOAD_TEXTURE2D(_VoxelPaletteTex, int2(paletteIndex, 0)).rgb;
 
                 // Свой оттенок у каждого вокселя: меш склеен, а воксели всё равно читаются
@@ -126,7 +131,7 @@ Shader "NoobGenerals/VoxelArena"
                 // Подкраска призрака здания: зелёный — можно ставить, красный — нельзя
                 color = lerp(color, _Tint.rgb * (0.6 + 0.4 * diffuseTerm), _Tint.a);
                 color = MixFog(color, input.fogFactor);
-                return half4(color, 1.0);
+                return half4(color, _Alpha);
             }
             ENDHLSL
         }
@@ -213,7 +218,7 @@ Shader "NoobGenerals/VoxelArena"
 
             half frag(Varyings input) : SV_Target
             {
-                BuildFadeClip(input.positionCS, (int)round(input.paletteIndex));
+                BuildModeClip((int)round(input.paletteIndex));
                 return 0;
             }
             ENDHLSL

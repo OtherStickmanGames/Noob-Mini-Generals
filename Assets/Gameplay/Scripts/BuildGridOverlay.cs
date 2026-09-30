@@ -36,6 +36,10 @@ namespace Generals
         int2 center;
         bool dirty;
 
+        // Стены при установке рисуются здесь вторым проходом, полупрозрачными
+        Material wallsMaterial;
+        readonly List<(Mesh mesh, Matrix4x4 matrix)> wallChunks = new();
+
         public static BuildGridOverlay Create(VoxelArena arena)
         {
             var go = new GameObject("Сетка застройки");
@@ -47,7 +51,11 @@ namespace Generals
             go.AddComponent<MeshFilter>().sharedMesh = overlay.mesh;
 
             overlay.meshRenderer = go.AddComponent<MeshRenderer>();
-            overlay.meshRenderer.sharedMaterial = new Material(Shader.Find("NoobGenerals/BuildGrid"));
+            overlay.meshRenderer.sharedMaterial = new Material(Shader.Find("NoobGenerals/BuildGrid"))
+            {
+                renderQueue = BuildModeVisuals.GridQueue,
+            };
+            overlay.wallsMaterial = BuildModeVisuals.CreateWallsMaterial(arena.Material);
             overlay.meshRenderer.shadowCastingMode = ShadowCastingMode.Off;
             overlay.meshRenderer.receiveShadows = false;
 
@@ -62,6 +70,7 @@ namespace Generals
             this.rule = rule;
             this.center = center;
             gameObject.SetActive(true);
+            arena.CollectWallChunks(wallChunks);
             Rebuild();
         }
 
@@ -87,6 +96,15 @@ namespace Generals
         {
             if (dirty)
                 Rebuild();
+
+            var rp = new RenderParams(wallsMaterial)
+            {
+                shadowCastingMode = ShadowCastingMode.Off,
+                receiveShadows = true,
+                layer = arena.gameObject.layer,
+            };
+            foreach (var (wallMesh, matrix) in wallChunks)
+                Graphics.RenderMesh(rp, wallMesh, 0, matrix);
         }
 
         void Rebuild()

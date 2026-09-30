@@ -22,16 +22,14 @@ namespace Generals
         public BuildGrid Grid { get; private set; }
         public IReadOnlyList<CapturePoint> CapturePoints => capturePoints;
 
-        /// <summary>Материал зданий: копия материала арены, при установке здания становится полупрозрачным целиком</summary>
+        /// <summary>Материал зданий: копия материала арены, при установке здания становится полупрозрачным</summary>
         public Material StructureMaterial
         {
             get
             {
                 if (structureMaterial == null)
                 {
-                    structureMaterial = new Material(arena.Material) { name = "Structures" };
-                    structureMaterial.SetFloat("_FadeWalls", 0f);
-                    structureMaterial.SetFloat("_FadeWhole", 1f);
+                    structureMaterial = BuildModeVisuals.CreateVariant(arena.Material, "Structures");
                 }
                 return structureMaterial;
             }

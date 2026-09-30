@@ -109,7 +109,7 @@ namespace Generals
             rtsCamera.ObjectDragged -= Ghost_Dragged;
             rtsCamera.ObjectDragEnded -= Ghost_Dragged;
             rtsCamera.TryBeginObjectDrag = null;
-            SetBuildFade(false);
+            BuildModeVisuals.SetActive(false);
             if (ghostMaterial != null)
                 Destroy(ghostMaterial);
         }
@@ -384,9 +384,7 @@ namespace Generals
             // Свой материал: не прозрачный и подкрашивается зелёным или красным
             if (ghostMaterial == null)
             {
-                ghostMaterial = new Material(Match.Arena.Material) { name = "Ghost" };
-                ghostMaterial.SetFloat("_FadeWalls", 0f);
-                ghostMaterial.SetFloat("_FadeWhole", 0f);
+                ghostMaterial = BuildModeVisuals.CreateVariant(Match.Arena.Material, "Ghost");
             }
             model.AddComponent<MeshRenderer>().sharedMaterial = ghostMaterial;
         }
@@ -394,16 +392,12 @@ namespace Generals
         // ---------- Выбор здания ----------
 
         static readonly int TintId = Shader.PropertyToID("_Tint");
-        static readonly int BuildFadeId = Shader.PropertyToID("_VoxelBuildFade");
 
-        // Режим установки: стены и готовые здания полупрозрачные, чтобы было видно сетку
-        static void SetBuildFade(bool on)
+        // Режим установки: стены и готовые здания полупрозрачные
+        void SetBuildFade(bool on)
         {
-            Shader.SetGlobalFloat(BuildFadeId, 0.1f);
-            if (on)
-                Shader.EnableKeyword("_VOXEL_BUILD_FADE");
-            else
-                Shader.DisableKeyword("_VOXEL_BUILD_FADE");
+            BuildModeVisuals.SetActive(on);
+            BuildModeVisuals.SetOpacity(Match.StructureMaterial, on ? BuildModeVisuals.Opacity : 1f);
         }
 
         void Select(Structure structure)

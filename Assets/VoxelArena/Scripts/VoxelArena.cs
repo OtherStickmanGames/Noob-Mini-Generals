@@ -329,6 +329,32 @@ public class VoxelArena : MonoBehaviour
         return math.max(ChunkSize, (size + ChunkSize - 1) / ChunkSize * ChunkSize);
     }
 
+    /// <summary>
+    /// Меши суши чанков, в которых стоят стены баз, с матрицами — чтобы при установке здания
+    /// нарисовать стены отдельно полупрозрачными.
+    /// </summary>
+    public void CollectWallChunks(List<(Mesh mesh, Matrix4x4 matrix)> result)
+    {
+        result.Clear();
+        if (Layout == null)
+            return;
+
+        var seen = new HashSet<int>();
+        foreach (var wall in Layout.walls)
+        {
+            int x = wall.cell.x, z = wall.cell.y;
+            int bottom = Layout.height[z * dims.x + x];
+            int top = math.min(bottom + generation.wallHeight + 1, dims.y - 1);
+            for (int cy = bottom / ChunkSize; cy <= top / ChunkSize; cy++)
+            {
+                int index = ChunkIndex(new int3(x / ChunkSize, cy, z / ChunkSize));
+                if (!seen.Add(index) || !chunks[index].landRenderer.enabled)
+                    continue;
+                result.Add((chunks[index].land, chunks[index].root.transform.localToWorldMatrix));
+            }
+        }
+    }
+
     void MarkChunkDirty(int index)
     {
         if (chunks[index].dirty)
