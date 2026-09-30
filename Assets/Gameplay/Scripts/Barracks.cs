@@ -16,6 +16,13 @@ namespace Generals
         /// <summary>Прогресс найма текущего отряда, 0..1</summary>
         public float Progress { get; private set; }
         public readonly List<Squad> Squads = new();
+        /// <summary>
+        /// Постоянный найм (как правый клик в Dawn of War): в очереди всегда отряд, пока хватает
+        /// ресурсов; не хватает — казармы ждут и закажут, как только появятся
+        /// </summary>
+        public bool Repeat { get; private set; }
+
+        public void SetRepeat(bool on) => Repeat = on;
 
         public Faction Faction => Structure.Faction;
 
@@ -77,6 +84,14 @@ namespace Generals
         void Update()
         {
             Squads.RemoveAll(s => !s.IsAlive);
+
+            // Постоянный найм: очередь опустела — заказать следующий, если хватает ресурсов
+            if (Repeat && Queued == 0 && Structure.IsBuilt && !MatchManager.Instance.IsOver &&
+                Faction.CanAfford(UnitCatalog.SquadCost, 0))
+            {
+                Faction.Pay(UnitCatalog.SquadCost, 0);
+                Queued = 1;
+            }
 
             if (!Structure.IsBuilt || Queued == 0)
                 return;

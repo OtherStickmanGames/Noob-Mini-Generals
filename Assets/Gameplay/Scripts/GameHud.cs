@@ -69,6 +69,8 @@ namespace Generals
         [SerializeField] Color defendColor = new(0.22f, 0.42f, 0.72f, 1f);
         [SerializeField] Color attackColor = new(0.72f, 0.26f, 0.2f, 1f);
         [SerializeField] Color inactiveColor = new(0.22f, 0.25f, 0.30f, 1f);
+        [Tooltip("Кнопка найма, когда в казармах включён постоянный найм")]
+        [SerializeField] Color repeatHireColor = new(0.72f, 0.52f, 0.16f, 1f);
 
         [Header("Полоски прочности")]
         [Tooltip("Образец полоски над бойцом или зданием: фон, дочерние Lag (след урона) и Fill (прочность)")]
@@ -195,6 +197,10 @@ namespace Generals
             confirmButton.onClick.AddListener(ConfirmPlacing);
             cancelButton.onClick.AddListener(CancelPlacing);
             hireButton.onClick.AddListener(HireForSelected);
+            // Правая кнопка / долгое нажатие по найму в казармах — постоянный найм
+            hirePressExtras = hireButton.gameObject.AddComponent<ButtonPressExtras>();
+            hirePressExtras.Secondary += ToggleRepeatForSelected;
+            hireButtonColor = hireButton.image.color;
             defendButton.onClick.AddListener(() => SetSelectedBehavior(BarracksBehavior.Defend));
             attackButton.onClick.AddListener(() => SetSelectedBehavior(BarracksBehavior.Attack));
             selectionHeightWithBehavior = ((RectTransform)selectionPanel.transform).sizeDelta.y;
@@ -887,6 +893,9 @@ namespace Generals
             // Полоса — прогресс найма; у пункта подкрепления — выход очередного бойца
             hireProgressFill.transform.parent.gameObject.SetActive(canHire || reinforcement != null);
             SetBehaviorRowVisible(barracks != null);
+            // Постоянный найм — кнопка другого цвета (переключается даже без денег: закажет, когда появятся)
+            bool repeat = barracks != null && barracks.Repeat;
+            hireButton.image.color = repeat ? repeatHireColor : hireButtonColor;
 
             if (!selected.IsBuilt)
             {
@@ -895,7 +904,7 @@ namespace Generals
                 hireButton.interactable = false;
                 SetHireProgress(0f);
                 if (barracks != null)
-                    SetButtonText(hireButton, HireSquadText);
+                    SetButtonText(hireButton, HireSquadText(repeat));
             }
             else if (isHq)
             {
@@ -908,7 +917,7 @@ namespace Generals
             }
             else if (barracks != null)
             {
-                SetButtonText(hireButton, HireSquadText);
+                SetButtonText(hireButton, HireSquadText(repeat));
                 hireButton.interactable = barracks.Queued < UnitCatalog.BarracksQueueLimit &&
                                           Player.CanAfford(UnitCatalog.SquadCost, 0);
                 SetHireProgress(barracks.Queued > 0 ? barracks.Progress : 0f);
@@ -959,7 +968,17 @@ namespace Generals
             }
         }
 
-        static string HireSquadText => $"Нанять отряд ({UnitCatalog.SquadSize}) · {UnitCatalog.SquadCost}";
+        // Кнопка найма отряда: вторая строка мелко — как включить или выключить постоянный найм
+        string HireSquadText(bool repeat)
+        {
+            string how = layout == HudLayout.Mobile ? "Долгое нажатие" : "ПКМ";
+            return repeat
+                ? $"Нанимать постоянно · {UnitCatalog.SquadCost}\n<size=58%>{how} — выключить</size>"
+                : $"Нанять отряд ({UnitCatalog.SquadSize}) · {UnitCatalog.SquadCost}\n<size=58%>{how} — нанимать постоянно</size>";
+        }
+
+        ButtonPressExtras hirePressExtras;
+        Color hireButtonColor;
 
         // ---------- Пункт подкрепления ----------
 
@@ -1068,9 +1087,19 @@ namespace Generals
             rect.sizeDelta = new Vector2(rect.sizeDelta.x, visible ? selectionHeightWithBehavior : selectionHeightWithBehavior - BehaviorRowHeight);
         }
 
+        void ToggleRepeatForSelected()
+        {
+            var barracks = selected != null && selected.Faction == Player ? selected.Barracks : null;
+            if (barracks == null)
+                return;
+            barracks.SetRepeat(!barracks.Repeat);
+            Toast(barracks.Repeat ? "Постоянный найм включён" : "Постоянный найм выключен");
+        }
+
         void HireForSelected()
         {
-            if (selected == null)
+            // Это был конец долгого нажатия (постоянный найм) — не нанимать ещё и обычным кликом
+            if (selected == null || hirePressExtras.ConsumeLongPress())
                 return;
 
             string reason;
