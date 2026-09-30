@@ -9,17 +9,27 @@ namespace Generals
     /// Сетка застройки при установке здания: квадрат клеток вокруг центра экрана.
     /// Зелёная клетка — здесь можно строить выбранное здание, красная — нельзя (занято, вне зоны, вода, стена).
     /// Клетки лежат вплотную; яркие линии сетки и бледную заливку рисует шейдер BuildGrid по UV клетки.
+    /// Вид (цвета, линии, размер) — BuildGridStyle из инспектора HUD, применяется через ApplyStyle.
     /// Меш пересобирается, когда центр сдвигается на другую клетку или меняется застройка.
     /// </summary>
     public class BuildGridOverlay : MonoBehaviour
     {
         /// <summary>Апофема квадрата сетки в клетках</summary>
-        public int apothem = 50;
-        /// <summary>Сколько крайних клеток плавно тают</summary>
-        public int fadeCells = 8;
-        // Цвет клетки; альфа вершины — только затухание к краю сетки, яркость линий и заливки задаёт шейдер
-        static readonly Color32 Free = new(70, 235, 90, 255);
-        static readonly Color32 Blocked = new(245, 60, 45, 255);
+        public int Apothem => apothem;
+
+        int apothem = 50;
+        int fadeCells = 8;
+
+        // Цвет вершины: r — клетка занята (1) или свободна (0), a — затухание к краю сетки.
+        // Сами цвета, линии и заливка — свойства материала
+        static readonly Color32 Free = new(0, 0, 0, 255);
+        static readonly Color32 Blocked = new(255, 0, 0, 255);
+
+        static readonly int FreeColorId = Shader.PropertyToID("_FreeColor");
+        static readonly int BlockedColorId = Shader.PropertyToID("_BlockedColor");
+        static readonly int LineWidthId = Shader.PropertyToID("_LineWidth");
+        static readonly int LineAlphaId = Shader.PropertyToID("_LineAlpha");
+        static readonly int FillAlphaId = Shader.PropertyToID("_FillAlpha");
 
         VoxelArena arena;
         BuildGrid grid;
@@ -77,6 +87,24 @@ namespace Generals
         public void Hide()
         {
             gameObject.SetActive(false);
+        }
+
+        /// <summary>Применить вид: цвета и линии — сразу через материал, размер — пересборкой меша</summary>
+        public void ApplyStyle(BuildGridStyle style)
+        {
+            var material = meshRenderer.sharedMaterial;
+            material.SetColor(FreeColorId, style.freeColor);
+            material.SetColor(BlockedColorId, style.blockedColor);
+            material.SetFloat(LineWidthId, style.lineWidth);
+            material.SetFloat(LineAlphaId, style.lineAlpha);
+            material.SetFloat(FillAlphaId, style.fillAlpha);
+
+            if (style.apothem != apothem || style.fadeCells != fadeCells)
+            {
+                apothem = style.apothem;
+                fadeCells = style.fadeCells;
+                dirty = true;
+            }
         }
 
         /// <summary>Центр сетки — клетка под центром экрана</summary>

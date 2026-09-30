@@ -35,6 +35,10 @@ namespace Generals
         [SerializeField] GameObject placementHintPanel;
         [SerializeField] TMP_Text placementHint;
 
+        [Header("Вид установки (меняется на лету в Play mode)")]
+        [SerializeField] BuildGridStyle gridStyle = new();
+        [SerializeField] PlacementOutlineStyle outlineStyle = new();
+
         [Header("Выбранное здание")]
         [SerializeField] GameObject selectionPanel;
         [SerializeField] TMP_Text selectionTitle;
@@ -228,6 +232,7 @@ namespace Generals
 
             if (gridOverlay == null)
                 gridOverlay = BuildGridOverlay.Create(Match.Arena);
+            gridOverlay.ApplyStyle(gridStyle);
             gridOverlay.Show(Match.Grid, Player, def.rule, center);
             SetBuildFade(true);
 
@@ -268,13 +273,13 @@ namespace Generals
                     return best;
             }
             // Остальное — ближайшее подходящее место от центра экрана
-            else if (Match.Grid.FindNearest(Player, def, center, gridOverlay.apothem, out var spot))
+            else if (Match.Grid.FindNearest(Player, def, center, gridOverlay.Apothem, out var spot))
             {
                 return spot;
             }
 
             // Подходящего места нет — хотя бы не внутри другого здания
-            Match.Grid.FindNearestFree(def, center, gridOverlay.apothem * 2, out var free);
+            Match.Grid.FindNearestFree(def, center, gridOverlay.Apothem * 2, out var free);
             return free;
         }
 
@@ -311,7 +316,6 @@ namespace Generals
 
             ghost.SetActive(true);
             ghost.transform.position = Match.CellCenter(placingMin, placingDef.footprint);
-            SelectionOutline.Color = placingValid ? OutlineValid : OutlineInvalid;
 
             bool affordable = Player.CanAfford(placingDef.costBase, placingDef.costValuable);
             confirmButton.interactable = placingValid && affordable;
@@ -326,9 +330,16 @@ namespace Generals
             if (placingDef == null || ghost == null || !ghost.activeSelf)
                 return;
 
-            // Сетка застройки идёт за центром экрана
+            // Сетка застройки идёт за центром экрана; вид берётся из инспектора каждый кадр,
+            // чтобы настройки было видно сразу
+            gridOverlay.ApplyStyle(gridStyle);
             if (ScreenCenterCell(out var centerCell))
                 gridOverlay.SetCenter(centerCell);
+
+            SelectionOutline.Color = placingValid ? outlineStyle.validColor : outlineStyle.invalidColor;
+            SelectionOutline.WidthAt1080 = outlineStyle.widthAt1080;
+            SelectionOutline.HiddenLineAlpha = outlineStyle.hiddenLineAlpha;
+            SelectionOutline.HiddenFillAlpha = outlineStyle.hiddenFillAlpha;
 
             var top = ghost.transform.position + Vector3.up * (ghostHeight + 0.6f);
             var screen = rtsCamera.Camera.WorldToScreenPoint(top);
@@ -391,13 +402,11 @@ namespace Generals
             }
             var ghostRenderer = model.AddComponent<MeshRenderer>();
             ghostRenderer.sharedMaterial = ghostMaterial;
-            SelectionOutline.Set(ghostRenderer, OutlineInvalid);
+            SelectionOutline.Set(ghostRenderer, outlineStyle.invalidColor);
         }
 
         // ---------- Выбор здания ----------
 
-        static readonly Color OutlineValid = new(0.35f, 1f, 0.4f);
-        static readonly Color OutlineInvalid = new(1f, 0.22f, 0.18f);
 
         // Режим установки: стены и готовые здания полупрозрачные
         void SetBuildFade(bool on)

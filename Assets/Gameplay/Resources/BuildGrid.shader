@@ -1,10 +1,13 @@
 // Сетка застройки: у каждой клетки яркая рамка (линии сетки) и бледная заливка того же цвета.
-// Цвет вершины — цвет клетки, его альфа — затухание к краю сетки. UV — координаты внутри клетки 0..1.
+// Цвет вершины: r — клетка занята (1) или свободна (0), a — затухание к краю сетки.
+// UV — координаты внутри клетки 0..1. Цвета и линии задаёт BuildGridStyle (инспектор HUD).
 // Лежит в Resources, чтобы Shader.Find находил его и в сборке.
 Shader "NoobGenerals/BuildGrid"
 {
     Properties
     {
+        _FreeColor ("Свободная клетка", Color) = (0.27, 0.92, 0.35, 1)
+        _BlockedColor ("Занятая клетка", Color) = (0.96, 0.24, 0.18, 1)
         _LineWidth ("Половина толщины линии, доля клетки", Range(0, 0.2)) = 0.045
         _LineAlpha ("Непрозрачность линий", Range(0, 1)) = 0.9
         _FillAlpha ("Непрозрачность заливки", Range(0, 1)) = 0.16
@@ -28,6 +31,8 @@ Shader "NoobGenerals/BuildGrid"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
             CBUFFER_START(UnityPerMaterial)
+                half4 _FreeColor;
+                half4 _BlockedColor;
                 half _LineWidth;
                 half _LineAlpha;
                 half _FillAlpha;
@@ -66,8 +71,9 @@ Shader "NoobGenerals/BuildGrid"
                 float2 onLine = saturate((width - edge) / max(pixel, 1e-5) + 0.5);
                 half lineMask = max(onLine.x, onLine.y);
 
-                half alpha = lerp(_FillAlpha, _LineAlpha, lineMask) * input.color.a;
-                half3 color = lerp(input.color.rgb, input.color.rgb * 1.15 + 0.05, lineMask);
+                half4 cell = lerp(_FreeColor, _BlockedColor, input.color.r);
+                half alpha = lerp(_FillAlpha, _LineAlpha, lineMask) * cell.a * input.color.a;
+                half3 color = lerp(cell.rgb, cell.rgb * 1.15 + 0.05, lineMask);
                 return half4(color, alpha);
             }
             ENDHLSL

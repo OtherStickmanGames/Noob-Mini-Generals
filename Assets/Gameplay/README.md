@@ -48,6 +48,8 @@
   экранный контур (Renderer Feature URP). В ассеты рендерера добавляется сам: `Editor/OutlineFeatureInstaller.cs`
   (или меню Tools/Voxel Arena/Install Outline Feature).
 - `BuildGridOverlay.cs` — сетка застройки при установке здания (шейдер `Resources/BuildGrid.shader`).
+  Вид сетки и контура настраивается в инспекторе HUD (компонент GameHud, «Вид установки»),
+  на лету в Play mode; классы настроек — `BuildGridStyle.cs`.
 - `MatchManager.cs` — запуск боя, заказ построек, найм.
 - `RtsCamera.cs` — камера боя (своя база внизу), касания.
 - `GameHud.cs` — логика интерфейса; вёрстка — в префабе `Prefabs/HUD.prefab` (обычный Canvas, uGUI, тексты TextMeshPro).
