@@ -257,6 +257,16 @@ namespace Generals
             return false;
         }
 
+        /// <summary>Вокруг прямоугольника на margin клеток нет других зданий (край карты не мешает)</summary>
+        public bool HasClearance(int2 min, int2 size, int margin)
+        {
+            for (int z = min.y - margin; z < min.y + size.y + margin; z++)
+                for (int x = min.x - margin; x < min.x + size.x + margin; x++)
+                    if (Inside(x, z) && occupied[Idx(x, z)])
+                        return false;
+            return true;
+        }
+
         bool IsFree(int2 min, int2 size)
         {
             for (int z = min.y; z < min.y + size.y; z++)

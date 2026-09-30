@@ -41,6 +41,11 @@ namespace Generals
         Vector3 lastPointer;
         float lastPinch;
 
+        // Плавный перевод камеры к точке (GlideTo); прерывается, если игрок сам двигает камеру
+        bool gliding;
+        Vector3 glideTarget;
+        Vector3 glideVelocity;
+
         void Awake()
         {
             Camera = GetComponent<Camera>();
@@ -81,8 +86,24 @@ namespace Generals
             HandleKeys();
         }
 
+        /// <summary>Плавно перевести камеру так, чтобы точка оказалась в центре экрана</summary>
+        public void GlideTo(Vector3 point)
+        {
+            glideTarget = point;
+            glideVelocity = Vector3.zero;
+            gliding = true;
+        }
+
         void LateUpdate()
         {
+            if (gliding)
+            {
+                pivot = Vector3.SmoothDamp(pivot, glideTarget, ref glideVelocity, 0.25f);
+                ClampPivot();
+                if ((pivot - glideTarget).sqrMagnitude < 0.0025f)
+                    gliding = false;
+            }
+
             var rotation = Quaternion.Euler(pitch, yaw, 0f);
             transform.SetPositionAndRotation(pivot - rotation * Vector3.forward * distance, rotation);
 
@@ -165,6 +186,7 @@ namespace Generals
             if (move == Vector2.zero)
                 return;
 
+            gliding = false;
             GetFlatAxes(out var right, out var forward);
             pivot += (right * move.x + forward * move.y) * (distance * 0.8f * Time.deltaTime);
             ClampPivot();
@@ -173,6 +195,7 @@ namespace Generals
         void Pan(Vector3 screenDelta)
         {
             GetFlatAxes(out var right, out var forward);
+            gliding = false;
             float scale = distance / Screen.height * 1.5f;
             pivot -= (right * screenDelta.x + forward * screenDelta.y) * scale;
             ClampPivot();

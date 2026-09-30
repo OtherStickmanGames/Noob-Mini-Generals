@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Unity.Mathematics;
 using TMPro;
@@ -237,6 +238,11 @@ namespace Generals
             SetBuildFade(true);
 
             SetGhostMin(FindInitialSpot(def, center));
+
+            // Здание появилось за краем кадра (шахта на дальней точке) — камера плавно едет к нему
+            var view = rtsCamera.Camera.WorldToViewportPoint(ghost.transform.position);
+            if (view.z <= 0f || view.x < 0.1f || view.x > 0.9f || view.y < 0.1f || view.y > 0.8f)
+                rtsCamera.GlideTo(ghost.transform.position);
         }
 
         /// <summary>Клетка под центром экрана</summary>
@@ -272,8 +278,8 @@ namespace Generals
                 if (bestDistance != int.MaxValue)
                     return best;
             }
-            // Остальное — ближайшее подходящее место от центра экрана
-            else if (Match.Grid.FindNearest(Player, def, center, gridOverlay.Apothem, out var spot))
+            // Остальное — ближайшее к центру экрана место, где здание хорошо видно
+            else if (FindVisibleSpot(def, center, out var spot))
             {
                 return spot;
             }
@@ -281,6 +287,103 @@ namespace Generals
             // Подходящего места нет — хотя бы не внутри другого здания
             Match.Grid.FindNearestFree(def, center, gridOverlay.Apothem * 2, out var free);
             return free;
+        }
+
+        /// <summary>
+        /// Место для нового здания, как в Clash of Clans: ближайшее к центру экрана, где его можно поставить,
+        /// оно целиком в кадре (с местом под кнопки сверху), ничем не закрыто от камеры и не стоит
+        /// вплотную к другим зданиям. Нет такого — сначала отказываемся от зазора, потом от видимости.
+        /// </summary>
+        bool FindVisibleSpot(StructureDef def, int2 center, out int2 result)
+        {
+            var start = BuildGrid.MinFromCenter(def, center);
+            int2 visibleSpot = default, anySpot = default;
+            bool hasVisible = false, hasAny = false;
+
+            for (int r = 0; r <= gridOverlay.Apothem; r++)
+            {
+                for (int dz = -r; dz <= r; dz++)
+                {
+                    for (int dx = -r; dx <= r; dx++)
+                    {
+                        if (math.max(math.abs(dx), math.abs(dz)) != r)
+                            continue;
+
+                        var min = start + new int2(dx, dz);
+                        if (!Match.Grid.CanPlace(Player, def, min, out _, out _))
+                            continue;
+                        if (!hasAny)
+                        {
+                            anySpot = min;
+                            hasAny = true;
+                        }
+
+                        bool clearance = Match.Grid.HasClearance(min, def.footprint, PlacementClearance);
+                        if (!clearance && hasVisible)
+                            continue;
+                        if (!IsSpotVisible(def, min))
+                            continue;
+
+                        if (clearance)
+                        {
+                            result = min;
+                            return true;
+                        }
+                        visibleSpot = min;
+                        hasVisible = true;
+                    }
+                }
+            }
+
+            result = hasVisible ? visibleSpot : anySpot;
+            return hasVisible || hasAny;
+        }
+
+        // Сколько клеток зазора оставлять до других зданий при выборе места
+        const int PlacementClearance = 1;
+
+        /// <summary>
+        /// Здание на этом месте целиком в кадре (сверху остаётся место под кнопки «Строить / Отмена»)
+        /// и его верх не закрыт от камеры ни стеной, ни рельефом, ни другим зданием
+        /// </summary>
+        bool IsSpotVisible(StructureDef def, int2 min)
+        {
+            var cam = rtsCamera.Camera;
+            var origin = cam.transform.position;
+            var ground = Match.CellCenter(min, def.footprint);
+            float height = VoxelModels.Size(VoxelModels.Structure(def.type, Player.team)).y * VoxelModels.VoxelSize;
+            float cell = Match.Arena.VoxelSize;
+            float hx = def.footprint.x * cell * 0.5f - 0.1f;
+            float hz = def.footprint.y * cell * 0.5f - 0.1f;
+            var top = ground + Vector3.up * height;
+
+            // Место под кнопки над зданием
+            var buttons = cam.WorldToViewportPoint(top + Vector3.up * 0.6f);
+            if (buttons.z <= 0f || buttons.y > 0.85f)
+                return false;
+
+            Span<Vector3> points = stackalloc Vector3[]
+            {
+                top,
+                top + new Vector3(-hx, 0f, -hz),
+                top + new Vector3(hx, 0f, -hz),
+                top + new Vector3(-hx, 0f, hz),
+                top + new Vector3(hx, 0f, hz),
+                ground + Vector3.up * (height * 0.5f),
+            };
+
+            foreach (var p in points)
+            {
+                var vp = cam.WorldToViewportPoint(p);
+                if (vp.z <= 0f || vp.x < 0.06f || vp.x > 0.94f || vp.y < 0.08f || vp.y > 0.85f)
+                    return false;
+
+                var toPoint = p - origin;
+                float distance = toPoint.magnitude;
+                if (Physics.Raycast(origin, toPoint / distance, distance - 0.05f))
+                    return false;
+            }
+            return true;
         }
 
         // Нажатие на здание (или рядом, на клетку) при установке — начинаем его тащить
