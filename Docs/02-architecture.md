@@ -133,6 +133,7 @@
 | `Editor/HudPrefabBuilder.cs` | Собирает `HUD.prefab` (Canvas Scale With Screen Size 1920×1080, TMP). Меню Tools/Voxel Arena/Rebuild HUD Prefab (ручные правки префаба пропадут). |
 | `Editor/HudMobilePrefabBuilder.cs` | Собирает мобильный `HUD_Mobile.prefab` (Canvas масштаб по высоте, `SafeArea`, крупные элементы, меню построек — `ScrollRect` с горизонтальной лентой) и проставляет ПК-префабу `mobileVariant` (`EnsureAndLink`, вызывается из `UpgradeIfNeeded`). Меню Tools/Voxel Arena/Rebuild Mobile HUD Prefab. |
 | `ButtonPressExtras.cs` | Второе действие кнопки: ПКМ или долгое нажатие (0.5 с) — `Secondary`; после долгого нажатия обычный клик пропускается (`ConsumeLongPress`). На кнопке найма — постоянный найм. |
+| `UiIcons.cs` | Значки интерфейса, нарисованные кодом в текстуру со сглаживанием (готовых иконок нет): `Repeat` — круговая стрелка постоянного найма на плашке казарм («Repeat Icon» в образце плашки, добавляет `HudPrefabBuilder.AddRepeatIcon` в оба префаба). |
 | `SafeArea.cs` | Растягивает RectTransform на `Screen.safeArea` (вырез, скругления), следит за поворотом и разрешением. |
 | `Editor/HudPrefabUpgrader.cs` | После компиляции дополняет существующий `HUD.prefab` недостающими элементами (`HudPrefabBuilder.UpgradeIfNeeded`), не трогая ручные правки. Новые элементы интерфейса добавлять так же, а не пересборкой префаба. |
 | `Editor/OutlineFeatureInstaller.cs` | Сам добавляет `OutlineFeature` во все ассеты рендерера URP. |

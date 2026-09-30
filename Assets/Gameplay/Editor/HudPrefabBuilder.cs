@@ -127,6 +127,7 @@ namespace Generals.EditorTools
             AddBarracksControls(root);
             AddCombatControls(root);
             AddReinforceControls(root, false);
+            AddRepeatIcon(root);
 
             Directory.CreateDirectory(Path.GetDirectoryName(PrefabPath));
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
@@ -148,6 +149,8 @@ namespace Generals.EditorTools
             bool reinforce = NeedsReinforceControls(hud);
             if (barracks || combat || reinforce)
                 UpgradeControls(barracks, combat, reinforce);
+            if (NeedsRepeatIcon(AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath).GetComponent<GameHud>()))
+                AddRepeatIconTo(PrefabPath);
 
             // Мобильный интерфейс: собрать, если его нет, и привязать к ПК-интерфейсу
             HudMobilePrefabBuilder.EnsureAndLink();
@@ -176,6 +179,48 @@ namespace Generals.EditorTools
             {
                 PrefabUtility.UnloadPrefabContents(root);
             }
+        }
+
+        /// <summary>Дополнить уже существующий префаб значком постоянного найма (ручные правки сохраняются)</summary>
+        internal static void AddRepeatIconTo(string prefabPath)
+        {
+            var root = PrefabUtility.LoadPrefabContents(prefabPath);
+            try
+            {
+                AddRepeatIcon(root);
+                PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+                Debug.Log($"[HUD] В {prefabPath} на плашку казарм добавлен значок постоянного найма");
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+
+        internal static bool NeedsRepeatIcon(GameHud hud)
+        {
+            var badge = new SerializedObject(hud).FindProperty("barracksBadgeTemplate").objectReferenceValue as RectTransform;
+            return badge != null && badge.Find("Repeat Icon") == null;
+        }
+
+        /// <summary>
+        /// Значок постоянного найма на плашке над казармами: квадрат цвета плашки справа от неё,
+        /// в нём круговая стрелка (спрайт рисуется кодом — UiIcons.Repeat). Размер — по высоте плашки
+        /// </summary>
+        internal static void AddRepeatIcon(GameObject root)
+        {
+            var so = new SerializedObject(root.GetComponent<GameHud>());
+            var badge = (RectTransform)so.FindProperty("barracksBadgeTemplate").objectReferenceValue;
+            float h = badge.sizeDelta.y;
+            var icon = MakePanel(badge, "Repeat Icon", new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(0f, 0.5f),
+                                 new Vector2(h * 0.12f, 0f), new Vector2(h, h), DefendColor);
+            icon.GetComponent<Image>().raycastTarget = false;
+            var glyph = MakePanel(icon, "Glyph", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, Color.white);
+            glyph.offsetMin = new Vector2(h * 0.12f, h * 0.12f);
+            glyph.offsetMax = new Vector2(-h * 0.12f, -h * 0.12f);
+            glyph.GetComponent<Image>().raycastTarget = false;
+            glyph.GetComponent<Image>().preserveAspect = true;
+            icon.gameObject.SetActive(false);
         }
 
         internal static bool NeedsReinforceControls(GameHud hud) =>

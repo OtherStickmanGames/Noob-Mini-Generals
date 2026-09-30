@@ -59,6 +59,11 @@ namespace Generals.EditorTools
                 }
                 mobile = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
             }
+            if (NeedsRepeatIcon(mobile.GetComponent<GameHud>()))
+            {
+                AddRepeatIconTo(PrefabPath);
+                mobile = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
+            }
 
             var pc = AssetDatabase.LoadAssetAtPath<GameObject>(HudPrefabBuilder.PrefabPath);
             if (pc == null || pc.GetComponent<GameHud>() is not { } pcHud)
@@ -262,6 +267,7 @@ namespace Generals.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
 
             AddReinforceControls(root, true);
+            AddRepeatIcon(root);
 
             Directory.CreateDirectory(Path.GetDirectoryName(PrefabPath));
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);

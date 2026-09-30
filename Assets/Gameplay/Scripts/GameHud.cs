@@ -1154,8 +1154,24 @@ namespace Generals
 
                 badge.position = screen;
                 bool defend = barracks.Behavior == BarracksBehavior.Defend;
-                badge.GetComponent<Image>().color = defend ? defendColor : attackColor;
+                var badgeColor = defend ? defendColor : attackColor;
+                badge.GetComponent<Image>().color = badgeColor;
                 badge.GetComponentInChildren<TMP_Text>().text = defend ? "Оборона" : "Атака";
+
+                // Постоянный найм — справа от плашки круговая стрелка в её цвете
+                var repeatIcon = badge.Find("Repeat Icon");
+                if (repeatIcon != null)
+                {
+                    if (repeatIcon.gameObject.activeSelf != barracks.Repeat)
+                        repeatIcon.gameObject.SetActive(barracks.Repeat);
+                    if (barracks.Repeat)
+                    {
+                        repeatIcon.GetComponent<Image>().color = badgeColor;
+                        var glyph = repeatIcon.Find("Glyph").GetComponent<Image>();
+                        if (glyph.sprite == null)
+                            glyph.sprite = UiIcons.Repeat;
+                    }
+                }
             }
             foreach (var b in badgeCleanup)
                 badges.Remove(b);
