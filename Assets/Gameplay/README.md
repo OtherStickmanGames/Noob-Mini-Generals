@@ -61,6 +61,8 @@
 - `WeaponCatalog.cs`, `Weapon.cs`, `Combat.cs` (`IDamageable`), `Projectiles.cs`, `Turret.cs` — оружие,
   снаряды, урон, турель. `Effects.cs` + шейдер `Resources/Effect.shader` — вспышки, обломки, дым.
 - `DestructibleModel.cs` — здание крошится по вокселям; `WallSegment.cs` — участок стены как цель.
+- `EnemyAI.cs` — скриптовый ИИ противника (шаг 6): стройка по списку, найм, волны атаки.
+  Настройки — поле Enemy Ai в инспекторе `MatchManager`.
 - `Editor/HudPrefabUpgrader.cs` — сам добавляет в существующий префаб HUD новые элементы.
 - `CapturePoint.cs` — точка захвата: владелец, захват через `ICapturer` (юниты его пока не
   реализуют — точки заморожены), доход.

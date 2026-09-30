@@ -85,6 +85,10 @@ namespace Generals
         [Tooltip("Через сколько секунд после разрушения главного здания показать итоги")]
         [SerializeField] float resultsDelay = 2.2f;
 
+        [Header("Предупреждения")]
+        [Tooltip("Цвет сообщения «Противник идёт в атаку»")]
+        [SerializeField] Color warningColor = new(1f, 0.45f, 0.35f, 1f);
+
         public RtsCamera RtsCamera
         {
             get => rtsCamera;
@@ -126,6 +130,7 @@ namespace Generals
 
         // Конец боя: камера едет к разрушенному главному зданию, потом итоги
         bool matchEndHandled;
+        int lastWaveWarned;
         float resultsTimer;
 
         // Высота панели выбранного здания со строкой поведения и без неё
@@ -208,6 +213,15 @@ namespace Generals
                                  $"Строители: {Player.builders.Count}     Бойцы: {Player.units.Count}     Точки: {OwnedPoints()}";
 
             UpdateMatchEnd();
+
+            // Противник пошёл волной — предупредить заметно (красным и дольше обычного сообщения)
+            var ai = Match.EnemyAI;
+            if (ai.WaveNumber != lastWaveWarned)
+            {
+                if (ai.WaveNumber > lastWaveWarned && !Match.IsOver)
+                    Toast($"Противник идёт в атаку! Волна {ai.WaveNumber}", warningColor, 4f);
+                lastWaveWarned = ai.WaveNumber;
+            }
 
             foreach (var (def, button) in buildButtons)
                 button.interactable = Player.CanAfford(def.costBase, def.costValuable);
@@ -958,11 +972,14 @@ namespace Generals
                 badges.Remove(b);
         }
 
-        void Toast(string text)
+        void Toast(string text) => Toast(text, Color.white, 2.5f);
+
+        void Toast(string text, Color color, float seconds)
         {
             toastText.text = text;
+            toastText.color = color;
             toastText.enabled = true;
-            toastTimer = 2.5f;
+            toastTimer = seconds;
         }
 
         static string Cost(StructureDef def) =>

@@ -17,6 +17,10 @@ namespace Generals
 
         [SerializeField] VoxelArena arena;
         [SerializeField] ArenaNavMesh navMesh;
+        [Tooltip("Скриптовый ИИ противника; настройки можно менять в Play mode")]
+        [SerializeField] EnemyAiSettings enemyAi = new();
+
+        public EnemyAI EnemyAI { get; private set; }
 
         public VoxelArena Arena => arena;
         public Faction Player { get; private set; }
@@ -60,6 +64,8 @@ namespace Generals
             Projectiles = gameObject.AddComponent<Projectiles>();
             Projectiles.Init(arena, Effects);
             slotPath = new NavMeshPath();
+            EnemyAI = gameObject.AddComponent<EnemyAI>();
+            EnemyAI.Init(this, enemyAi);
             arena.Generated += Arena_Generated;
         }
 
@@ -113,6 +119,7 @@ namespace Generals
             }
 
             CreateWallSegments();
+            EnemyAI.ResetForMatch(Enemy, Player);
         }
 
         // ---------- Стены ----------
@@ -415,6 +422,7 @@ namespace Generals
                 buildersSpawned = true;
                 SpawnBuilder(Player);
                 SpawnBuilder(Enemy);
+                EnemyAI.Begin();
             }
 
             if (buildersSpawned)
