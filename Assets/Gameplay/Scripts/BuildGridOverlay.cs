@@ -8,6 +8,7 @@ namespace Generals
     /// <summary>
     /// Сетка застройки при установке здания: квадрат клеток вокруг центра экрана.
     /// Зелёная клетка — здесь можно строить выбранное здание, красная — нельзя (занято, вне зоны, вода, стена).
+    /// Клетки лежат вплотную; яркие линии сетки и бледную заливку рисует шейдер BuildGrid по UV клетки.
     /// Меш пересобирается, когда центр сдвигается на другую клетку или меняется застройка.
     /// </summary>
     public class BuildGridOverlay : MonoBehaviour
@@ -16,11 +17,9 @@ namespace Generals
         public int apothem = 50;
         /// <summary>Сколько крайних клеток плавно тают</summary>
         public int fadeCells = 8;
-        /// <summary>Зазор между клетками, доля клетки</summary>
-        public float gap = 0.08f;
-
-        static readonly Color32 Free = new(60, 230, 80, 110);
-        static readonly Color32 Blocked = new(240, 50, 40, 110);
+        // Цвет клетки; альфа вершины — только затухание к краю сетки, яркость линий и заливки задаёт шейдер
+        static readonly Color32 Free = new(70, 235, 90, 255);
+        static readonly Color32 Blocked = new(245, 60, 45, 255);
 
         VoxelArena arena;
         BuildGrid grid;
@@ -31,6 +30,7 @@ namespace Generals
         MeshRenderer meshRenderer;
         readonly List<Vector3> vertices = new();
         readonly List<Color32> colors = new();
+        readonly List<Vector2> uvs = new();
         readonly List<int> indices = new();
 
         int2 center;
@@ -112,6 +112,7 @@ namespace Generals
             dirty = false;
             vertices.Clear();
             colors.Clear();
+            uvs.Clear();
             indices.Clear();
 
             var layout = arena.Layout;
@@ -135,10 +136,14 @@ namespace Generals
                         color.a = (byte)(color.a * math.saturate((apothem + 1 - edge) / (fadeCells + 1)));
 
                     int v = vertices.Count;
-                    vertices.Add(arena.VoxelToWorld(new float3(x + gap, y, z + gap)));
-                    vertices.Add(arena.VoxelToWorld(new float3(x + gap, y, z + 1 - gap)));
-                    vertices.Add(arena.VoxelToWorld(new float3(x + 1 - gap, y, z + 1 - gap)));
-                    vertices.Add(arena.VoxelToWorld(new float3(x + 1 - gap, y, z + gap)));
+                    vertices.Add(arena.VoxelToWorld(new float3(x, y, z)));
+                    vertices.Add(arena.VoxelToWorld(new float3(x, y, z + 1)));
+                    vertices.Add(arena.VoxelToWorld(new float3(x + 1, y, z + 1)));
+                    vertices.Add(arena.VoxelToWorld(new float3(x + 1, y, z)));
+                    uvs.Add(new Vector2(0f, 0f));
+                    uvs.Add(new Vector2(0f, 1f));
+                    uvs.Add(new Vector2(1f, 1f));
+                    uvs.Add(new Vector2(1f, 0f));
                     colors.Add(color);
                     colors.Add(color);
                     colors.Add(color);
@@ -156,6 +161,7 @@ namespace Generals
             mesh.indexFormat = IndexFormat.UInt32;
             mesh.SetVertices(vertices);
             mesh.SetColors(colors);
+            mesh.SetUVs(0, uvs);
             mesh.SetTriangles(indices, 0);
             mesh.RecalculateBounds();
         }
