@@ -278,10 +278,25 @@ namespace Generals
             _ => Application.isMobilePlatform,
         };
 
+        // MatchManager к Awake интерфейса может ещё не проснуться
+        void Start()
+        {
+            if (!replaced)
+                Match.SiteUnreachable += Match_SiteUnreachable;
+        }
+
+        void Match_SiteUnreachable(Structure site)
+        {
+            if (site.Faction == Player)
+                Toast($"Строителям не пройти к стройке «{site.Def.name}» — освободите проход", warningColor, 4f);
+        }
+
         void OnDestroy()
         {
             if (replaced)
                 return;
+            if (Match != null)
+                Match.SiteUnreachable -= Match_SiteUnreachable;
             rtsCamera.Tapped -= Camera_Tapped;
             rtsCamera.ObjectDragged -= Ghost_Dragged;
             rtsCamera.ObjectDragEnded -= Ghost_Dragged;

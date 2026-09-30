@@ -25,6 +25,10 @@ namespace Generals
         /// <summary>Для шахты на точке захвата</summary>
         public CapturePoint CapturePoint { get; private set; }
         public BuilderUnit AssignedBuilder { get; set; }
+        /// <summary>Строитель не нашёл пути к стройке: до этого момента её никто не берёт</summary>
+        public float UnreachableUntil { get; set; } = float.NegativeInfinity;
+        /// <summary>Игрока уже предупредили, что к стройке не пройти</summary>
+        public bool UnreachableReported { get; set; }
         /// <summary>Очередь найма и поведение бойцов — только у казарм</summary>
         public Barracks Barracks { get; private set; }
         /// <summary>Поворотная башня — только у турели</summary>

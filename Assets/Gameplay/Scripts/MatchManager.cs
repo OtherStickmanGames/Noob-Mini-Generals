@@ -543,14 +543,14 @@ namespace Generals
             return arena.VoxelToWorld(new float3(c.x, y, c.y));
         }
 
-        /// <summary>Строитель берёт ближайшую незанятую стройку своей стороны</summary>
+        /// <summary>Строитель берёт ближайшую незанятую стройку своей стороны, к которой недавно не терял путь</summary>
         public Structure ClaimSite(BuilderUnit builder)
         {
             Structure best = null;
             float bestDistance = float.MaxValue;
             foreach (var s in builder.Faction.structures)
             {
-                if (s.IsBuilt || s.AssignedBuilder != null)
+                if (s.IsBuilt || s.AssignedBuilder != null || Time.time < s.UnreachableUntil)
                     continue;
                 float d = s.DistanceTo(builder.transform.position);
                 if (d < bestDistance)
@@ -564,6 +564,21 @@ namespace Generals
                 best.AssignedBuilder = builder;
             return best;
         }
+
+        /// <summary>Строитель не может пройти к стройке (для подсказки игроку)</summary>
+        public event System.Action<Structure> SiteUnreachable;
+
+        /// <summary>К стройке нет пути: несколько секунд её никто не берёт, потом снова пробуют</summary>
+        public void ReportUnreachableSite(Structure site)
+        {
+            site.UnreachableUntil = Time.time + UnreachableSiteRetry;
+            if (site.UnreachableReported)
+                return;
+            site.UnreachableReported = true;
+            SiteUnreachable?.Invoke(site);
+        }
+
+        const float UnreachableSiteRetry = 5f;
 
         public CapturePoint CapturePointAt(int2 cell)
         {
