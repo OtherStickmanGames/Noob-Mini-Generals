@@ -15,6 +15,10 @@ namespace Generals
         readonly bool[] depositCells;
         // Номер точки захвата в layout.resources + 1 для каждой клетки (0 — не точка)
         readonly int[] depositIndex;
+        // Клетки стен; турель можно ставить на верх стены (между зубцами)
+        readonly bool[] wallCells;
+        // Высота верха стены без зубцов для базы один и два
+        readonly int[] wallTop = { int.MaxValue, int.MaxValue };
 
         public BuildGrid(VoxelArena arena)
         {
@@ -25,6 +29,16 @@ namespace Generals
             occupied = new bool[sx * sz];
             depositCells = new bool[sx * sz];
             depositIndex = new int[sx * sz];
+            wallCells = new bool[sx * sz];
+
+            foreach (var w in layout.walls)
+            {
+                int i = Idx(w.cell.x, w.cell.y);
+                wallCells[i] = true;
+                int team = layout.baseArea[i] - 1;
+                if (team >= 0)
+                    wallTop[team] = math.min(wallTop[team], arena.SurfaceY(w.cell.x, w.cell.y));
+            }
 
             for (int k = 0; k < layout.resources.Count; k++)
             {
@@ -145,8 +159,14 @@ namespace Generals
             if (arena.IsWaterAt(x, z))
                 return "Здесь вода";
 
+            int surface = arena.SurfaceY(x, z);
+
+            // Оборону можно ставить на верх своей стены, но не на зубцы
+            if (rule == PlacementRule.BaseArea && wallCells[i])
+                return surface == wallTop[faction.team] ? null : "Здесь зубец стены";
+
             // Над землёй что-то стоит (стена, дерево, камень) или земля разрушена
-            if (arena.SurfaceY(x, z) != layout.height[i])
+            if (surface != layout.height[i])
                 return "Место занято";
 
             return null;
