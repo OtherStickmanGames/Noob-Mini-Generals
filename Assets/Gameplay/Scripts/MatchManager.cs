@@ -203,6 +203,10 @@ namespace Generals
             var position = unit.transform.position;
             candidateTargets.Clear();
 
+            // Прорвался внутрь стен — бьёт здания, стены за спиной уже не цель
+            if (IsInsideWalls(position, enemy) && HasOtherStructure(enemy, exclude))
+                return ChooseStructure(enemy, position, exclude);
+
             float nearest = float.MaxValue;
             foreach (var s in enemy.structures)
                 if (Combat.IsAlive(s) && (IAreaTarget)s != exclude)
@@ -220,6 +224,49 @@ namespace Generals
             foreach (var w in enemy.walls)
                 if (Combat.IsAlive(w) && (IAreaTarget)w != exclude)
                     total += AddCandidate(w, w.DistanceTo(position) - nearest, 1f);
+
+            float roll = Random.value * total;
+            foreach (var (target, weight) in candidateTargets)
+            {
+                roll -= weight;
+                if (roll <= 0f)
+                    return target;
+            }
+            return candidateTargets[^1].target;
+        }
+
+        /// <summary>Точка внутри стен базы стороны (текущего уровня стен)</summary>
+        public bool IsInsideWalls(Vector3 world, Faction faction)
+        {
+            var layout = arena.Layout;
+            var voxel = (int3)math.floor(arena.WorldToVoxel(world));
+            if (voxel.x < 0 || voxel.z < 0 || voxel.x >= layout.sizeX || voxel.z >= layout.sizeZ)
+                return false;
+            int zone = layout.baseZone[voxel.z * layout.sizeX + voxel.x];
+            int level = faction.team == 0 ? zone : zone - 4;
+            return level >= 1 && level <= faction.wallLevel;
+        }
+
+        static bool HasOtherStructure(Faction faction, IAreaTarget exclude)
+        {
+            foreach (var s in faction.structures)
+                if (Combat.IsAlive(s) && (IAreaTarget)s != exclude)
+                    return true;
+            return false;
+        }
+
+        // Только здания: те же веса близости и числа атакующих, без окна по расстоянию
+        IAreaTarget ChooseStructure(Faction enemy, Vector3 position, IAreaTarget exclude)
+        {
+            float nearest = float.MaxValue;
+            foreach (var s in enemy.structures)
+                if (Combat.IsAlive(s) && (IAreaTarget)s != exclude)
+                    nearest = Mathf.Min(nearest, s.DistanceTo(position));
+
+            float total = 0f;
+            foreach (var s in enemy.structures)
+                if (Combat.IsAlive(s) && (IAreaTarget)s != exclude)
+                    total += AddCandidate(s, Mathf.Min(s.DistanceTo(position) - nearest, UnitCatalog.AttackTargetWindow), 1f);
 
             float roll = Random.value * total;
             foreach (var (target, weight) in candidateTargets)
