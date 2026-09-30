@@ -399,7 +399,7 @@ namespace Generals
         // Режим установки: стены и готовые здания полупрозрачные, чтобы было видно сетку
         static void SetBuildFade(bool on)
         {
-            Shader.SetGlobalFloat(BuildFadeId, 0.5f);
+            Shader.SetGlobalFloat(BuildFadeId, 0.1f);
             if (on)
                 Shader.EnableKeyword("_VOXEL_BUILD_FADE");
             else
