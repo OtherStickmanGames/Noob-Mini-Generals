@@ -465,8 +465,11 @@ public class VoxelArena : MonoBehaviour
         var shapeBuffers = new MeshBuffers[count];
         var handles = new NativeArray<JobHandle>(count * 3, Allocator.Temp);
 
-        // 1. Меши во всех рабочих потоках: суша, вода и форма суши отдельными джобами
+        // 1. Меши: суша, вода и форма суши отдельными джобами. Много чанков (генерация) — во всех
+        // рабочих потоках; несколько (воронка, скол стены) — прямо в главном: рабочие потоки бывают
+        // надолго заняты NavMesh, и ожидание их стоило бы десятки мс
         timer.Restart();
+        bool inWorkers = count > MainThreadChunkLimit;
         for (int k = 0; k < count; k++)
         {
             int3 origin = ChunkCoord(dirtyChunks[k]) * ChunkSize;
@@ -474,9 +477,9 @@ public class VoxelArena : MonoBehaviour
             waterBuffers[k] = new MeshBuffers();
             shapeBuffers[k] = new MeshBuffers();
 
-            handles[k * 3] = ScheduleMesh(origin, false, false, landBuffers[k]);
-            handles[k * 3 + 1] = ScheduleMesh(origin, true, false, waterBuffers[k]);
-            handles[k * 3 + 2] = ScheduleMesh(origin, false, true, shapeBuffers[k]);
+            handles[k * 3] = BuildMesh(origin, false, false, landBuffers[k], inWorkers);
+            handles[k * 3 + 1] = BuildMesh(origin, true, false, waterBuffers[k], inWorkers);
+            handles[k * 3 + 2] = BuildMesh(origin, false, true, shapeBuffers[k], inWorkers);
         }
         JobHandle.CompleteAll(handles);
         handles.Dispose();
@@ -533,9 +536,12 @@ public class VoxelArena : MonoBehaviour
         dirtyChunks.Clear();
     }
 
-    JobHandle ScheduleMesh(int3 origin, bool water, bool plain, MeshBuffers buffers)
+    // Сколько чанков за раз строится в главном потоке, а не в рабочих
+    const int MainThreadChunkLimit = 12;
+
+    JobHandle BuildMesh(int3 origin, bool water, bool plain, MeshBuffers buffers, bool inWorkers)
     {
-        return new GreedyMeshJob
+        var job = new GreedyMeshJob
         {
             voxels = voxels,
             faceColors = faceColors,
@@ -548,8 +554,12 @@ public class VoxelArena : MonoBehaviour
             normals = buffers.normals,
             colors = buffers.colors,
             indices = buffers.indices,
-        }
-        .Schedule();
+        };
+
+        if (inWorkers)
+            return job.Schedule();
+        job.Run();
+        return default;
     }
 
     // Меш собирается обычными SetVertices/SetNormals/SetColors/SetIndices, как в Voxer

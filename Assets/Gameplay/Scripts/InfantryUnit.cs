@@ -14,6 +14,8 @@ namespace Generals
     {
         const float ThinkInterval = 0.25f;
         const float RepathDistance = 0.75f;
+        // Позицию вокруг постройки ищем, когда до неё не дальше дальности оружия + столько метров
+        const float SlotSearchDistance = 10f;
         public const float ChestHeight = 1.05f;
         /// <summary>Сколько секунд почти без движения по пути считается «застрял»</summary>
         const float StuckTime = 1.5f;
@@ -230,6 +232,17 @@ namespace Generals
 
             if (!hasSlot)
             {
+                // Позицию ищем уже вблизи цели: там пути по NavMesh короткие. Издалека — просто идём
+                // к цели (путь агента считается по кадрам), и так же ждём, если бюджет кадра исчерпан
+                if (target.DistanceTo(transform.position) > weapon.Def.range + SlotSearchDistance ||
+                    !match.CanClaimSlotThisFrame())
+                {
+                    Target = null;
+                    Firing = false;
+                    MoveTo(target.ClosestEdgePoint(transform.position, weapon.Def.range * 0.6f));
+                    return;
+                }
+
                 hasSlot = match.ClaimAttackSlot(this, target, weapon.Def.range, null, out slot);
                 if (!hasSlot)
                 {

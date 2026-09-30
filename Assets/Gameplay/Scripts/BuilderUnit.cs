@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -16,8 +17,10 @@ namespace Generals
         const float CandidateSpacing = 1f;
         const float CornerInset = 0.2f;
         const float SampleRadius = 0.4f;
+        const int MaxPathFailures = 3;
 
         NavMeshPath path;
+        readonly List<(float distance, Vector3 position)> candidates = new();
 
         public Faction Faction { get; private set; }
         public Structure Target { get; private set; }
@@ -117,17 +120,18 @@ namespace Generals
         }
 
         /// <summary>
-        /// Точки вдоль всех четырёх сторон здания на расстоянии работы; из тех, что на NavMesh на
-        /// уровне земли и до которых есть полный путь, — самая короткая по пути.
-        /// Ближайшая точка края по прямой не годится: с той стороны может быть узкий проход
-        /// до соседнего здания, а ближайший кусок NavMesh — на верху стены.
+        /// Точки вдоль всех четырёх сторон здания на расстоянии работы (на NavMesh у земли, не на
+        /// стене); по порядку от ближайшей по прямой — первая, до которой есть полный путь.
+        /// Ближайшая точка края без проверки пути не годится: с той стороны может быть узкий проход
+        /// до соседнего здания, а ближайший кусок NavMesh — на верху стены. Поиск пути к недостижимой
+        /// точке обходит весь NavMesh, поэтому после нескольких неудач сдаёмся.
         /// </summary>
         bool FindWorkPoint(Structure site, out Vector3 point)
         {
-            point = default;
-            float best = float.MaxValue;
+            var match = MatchManager.Instance;
             var center = site.transform.position;
             var half = site.HalfExtents;
+            candidates.Clear();
 
             for (int side = 0; side < 4; side++)
             {
@@ -144,22 +148,27 @@ namespace Generals
                         : center + new Vector3(sign * (half.x + EdgeMargin), 0f, t);
 
                     if (!NavMesh.SamplePosition(OnGround(candidate), out var hit, SampleRadius, NavMesh.AllAreas) ||
-                        site.DistanceTo(hit.position) > WorkDistance)
+                        site.DistanceTo(hit.position) > WorkDistance || match.IsOnWall(hit.position))
                         continue;
-
-                    if (!NavMesh.CalculatePath(transform.position, hit.position, NavMesh.AllAreas, path) ||
-                        path.status != NavMeshPathStatus.PathComplete)
-                        continue;
-
-                    float pathLength = PathLength(path);
-                    if (pathLength < best)
-                    {
-                        best = pathLength;
-                        point = hit.position;
-                    }
+                    candidates.Add(((hit.position - transform.position).sqrMagnitude, hit.position));
                 }
             }
-            return best < float.MaxValue;
+            candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+            int failures = 0;
+            foreach (var (_, position) in candidates)
+            {
+                if (NavMesh.CalculatePath(transform.position, position, NavMesh.AllAreas, path) &&
+                    path.status == NavMeshPathStatus.PathComplete)
+                {
+                    point = position;
+                    return true;
+                }
+                if (++failures >= MaxPathFailures)
+                    break;
+            }
+            point = default;
+            return false;
         }
 
         // Точка на поверхности столбца арены: у турели на стене строитель работает снизу, у подножия
@@ -171,15 +180,6 @@ namespace Generals
             int z = Mathf.Clamp(Mathf.FloorToInt(voxel.z), 0, arena.Dims.z - 1);
             point.y = arena.ColumnTop(x, z).y;
             return point;
-        }
-
-        static float PathLength(NavMeshPath path)
-        {
-            var corners = path.corners;
-            float sum = 0f;
-            for (int i = 1; i < corners.Length; i++)
-                sum += Vector3.Distance(corners[i - 1], corners[i]);
-            return sum;
         }
 
         void MoveTo(Vector3 point)

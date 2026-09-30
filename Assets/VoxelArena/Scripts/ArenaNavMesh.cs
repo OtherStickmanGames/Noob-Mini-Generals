@@ -40,6 +40,8 @@ public class ArenaNavMesh : MonoBehaviour
     AsyncOperation running;
     bool dirty;
 
+    static readonly Unity.Profiling.ProfilerMarker StartMarker = new("ArenaNavMesh.StartUpdate");
+
     readonly Stopwatch timer = new();
     int startFrame;
     float lastStartTime = float.NegativeInfinity;
@@ -171,6 +173,8 @@ public class ArenaNavMesh : MonoBehaviour
 
         timer.Restart();
         startFrame = Time.frameCount;
-        running = NavMeshBuilder.UpdateNavMeshDataAsync(data, settings, buildSources, bounds);
+        // Запуск сборки сам занимает главный поток (Unity забирает данные всех источников)
+        using (StartMarker.Auto())
+            running = NavMeshBuilder.UpdateNavMeshDataAsync(data, settings, buildSources, bounds);
     }
 }

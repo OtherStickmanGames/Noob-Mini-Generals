@@ -362,8 +362,9 @@ namespace Generals
                     colors = colors,
                     indices = indices,
                 }
-                .Schedule()
-                .Complete();
+                // Прямо в главном потоке (Burst): меш маленький, а рабочие потоки бывают надолго
+                // заняты NavMesh — Schedule + Complete ждал бы их десятки мс
+                .Run();
 
                 mesh.Clear();
                 mesh.SetVertices(positions.AsArray());

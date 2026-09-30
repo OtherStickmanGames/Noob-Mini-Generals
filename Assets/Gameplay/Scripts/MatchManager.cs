@@ -3,6 +3,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using Random = UnityEngine.Random;
 using UnityEngine.AI;
+using Unity.Profiling;
 
 namespace Generals
 {
@@ -309,7 +310,11 @@ namespace Generals
         /// </summary>
         public bool ClaimAttackSlot(InfantryUnit unit, IAreaTarget target, float range, Vector3? avoid, out Vector3 slot)
         {
+            using var _ = ClaimSlotMarker.Auto();
+            CanClaimSlotThisFrame(); // сброс счётчика в новом кадре
+            slotClaimsThisFrame++;
             ReleaseAttackSlot(unit, target);
+            int pathFailures = 0;
             if (!attackSlots.TryGetValue(target, out var claims))
                 attackSlots[target] = claims = new List<(InfantryUnit, Vector3)>();
             claims.RemoveAll(c => c.unit == null);
@@ -345,6 +350,9 @@ namespace Generals
                 var point = hit.position;
                 if (avoid.HasValue && (point - avoid.Value).sqrMagnitude < 2.25f)
                     continue;
+                // Верх стены — отрезанный кусок NavMesh, путь туда не найдётся, а искать его дорого
+                if (IsOnWall(point))
+                    continue;
                 // В воротах не стоять — через них идут остальные
                 if (InGateway(point, target.Faction))
                     continue;
@@ -365,7 +373,13 @@ namespace Generals
                 // Дойти можно (не верх стены и не отрезанный кусок NavMesh)
                 if (!NavMesh.CalculatePath(unit.transform.position, point, NavMesh.AllAreas, slotPath) ||
                     slotPath.status != NavMeshPathStatus.PathComplete)
+                {
+                    // Поиск пути к недостижимой точке обходит весь NavMesh — после нескольких таких
+                    // не перебираем дальше, отряд возьмёт другую цель
+                    if (++pathFailures >= MaxSlotPathFailures)
+                        break;
                     continue;
+                }
 
                 claims.Add((unit, point));
                 slot = point;
@@ -374,6 +388,34 @@ namespace Generals
 
             slot = default;
             return false;
+        }
+
+        const int MaxSlotPathFailures = 3;
+        // Позиции вокруг построек ищут не больше стольких бойцов за кадр (каждый поиск — несколько
+        // путей по NavMesh); остальные идут к цели и пробуют в следующих кадрах. Иначе волна из
+        // нескольких отрядов искала все позиции в одном кадре (150 мс)
+        const int SlotClaimsPerFrame = 4;
+        static readonly ProfilerMarker ClaimSlotMarker = new("MatchManager.ClaimAttackSlot");
+
+        int slotClaimsThisFrame;
+        int slotClaimsFrame;
+
+        /// <summary>Можно ли в этом кадре искать позицию вокруг постройки (бюджет на кадр)</summary>
+        public bool CanClaimSlotThisFrame()
+        {
+            if (slotClaimsFrame != Time.frameCount)
+            {
+                slotClaimsFrame = Time.frameCount;
+                slotClaimsThisFrame = 0;
+            }
+            return slotClaimsThisFrame < SlotClaimsPerFrame;
+        }
+
+        /// <summary>Точка стоит на стене (верх стены — отрезанный кусок NavMesh)</summary>
+        public bool IsOnWall(Vector3 point)
+        {
+            var voxel = (int3)math.floor(arena.WorldToVoxel(point + Vector3.down * (arena.VoxelSize * 0.5f)));
+            return arena.GetBlock(voxel) == VoxelBlocks.Wall;
         }
 
         // Проход ворот базы: от точки снаружи ворот внутрь на толщину стены и чуть дальше

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
+using Unity.Profiling;
 
 namespace Generals
 {
@@ -136,6 +137,12 @@ namespace Generals
 
         void Think()
         {
+            using var _ = ThinkMarker.Auto();
+            ThinkCore();
+        }
+
+        void ThinkCore()
+        {
             var match = MatchManager.Instance;
             var enemy = match.GetFaction(1 - Faction.team);
             var center = Center;
@@ -249,8 +256,11 @@ namespace Generals
             var from = Members[0].transform.position;
             var to = enemy.transform.position;
             path ??= new NavMeshPath();
-            if (!NavMesh.CalculatePath(from, to, NavMesh.AllAreas, path) || path.status != NavMeshPathStatus.PathComplete)
-                return false;
+            using (CanFightPathMarker.Auto())
+            {
+                if (!NavMesh.CalculatePath(from, to, NavMesh.AllAreas, path) || path.status != NavMeshPathStatus.PathComplete)
+                    return false;
+            }
 
             float length = 0f;
             var corners = path.corners;
@@ -263,5 +273,7 @@ namespace Generals
 
         readonly List<(float distance, InfantryUnit unit)> candidates = new();
         static NavMeshPath path;
+        static readonly ProfilerMarker ThinkMarker = new("Squad.Think");
+        static readonly ProfilerMarker CanFightPathMarker = new("Squad.CanFight path");
     }
 }
