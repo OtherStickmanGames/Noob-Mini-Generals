@@ -61,6 +61,9 @@
 - `WeaponCatalog.cs`, `Weapon.cs`, `Combat.cs` (`IDamageable`), `Projectiles.cs`, `Turret.cs` — оружие,
   снаряды, урон, турель. `Effects.cs` + шейдер `Resources/Effect.shader` — вспышки, обломки, дым.
 - `DestructibleModel.cs` — здание крошится по вокселям; `WallSegment.cs` — участок стены как цель.
+- `Prefabs/HUD_Mobile.prefab` — интерфейс для телефона (шаг 7), собирается `Editor/HudMobilePrefabBuilder.cs`;
+  ПК-интерфейс на телефоне сам заменяется им (`GameHud`: «Платформа → Choice» — Auto / PC / Mobile).
+  `SafeArea.cs` — безопасная область экрана.
 - `EnemyAI.cs` — скриптовый ИИ противника (шаг 6): стройка по списку, найм, волны атаки.
   Настройки — поле Enemy Ai в инспекторе `MatchManager`.
 - `Editor/HudPrefabUpgrader.cs` — сам добавляет в существующий префаб HUD новые элементы.

@@ -89,6 +89,23 @@ namespace Generals
         [Tooltip("Цвет сообщения «Противник идёт в атаку»")]
         [SerializeField] Color warningColor = new(1f, 0.45f, 0.35f, 1f);
 
+        [Header("Платформа")]
+        [Tooltip("Для какой платформы сверстан этот интерфейс")]
+        [SerializeField] HudLayout layout = HudLayout.PC;
+        [Tooltip("Интерфейс для телефона (только у ПК-интерфейса): на телефоне ПК-интерфейс заменяется им")]
+        [SerializeField] GameHud mobileVariant;
+        [Tooltip("Какой интерфейс показывать (только у ПК-интерфейса). Авто — по платформе: телефон, " +
+                 "в том числе Device Simulator, — мобильный. Mobile — проверить мобильный в редакторе")]
+        [SerializeField] HudChoice choice = HudChoice.Auto;
+
+        public enum HudLayout { PC, Mobile }
+        public enum HudChoice { Auto, PC, Mobile }
+
+        public HudLayout Layout => layout;
+
+        // ПК-интерфейс заменил себя мобильным и ничего не делает до уничтожения
+        bool replaced;
+
         public RtsCamera RtsCamera
         {
             get => rtsCamera;
@@ -142,6 +159,20 @@ namespace Generals
 
         void Awake()
         {
+            // На телефоне ПК-интерфейс из сцены заменяет себя мобильным (сцену менять не нужно)
+            if (layout == HudLayout.PC && mobileVariant != null && WantsMobile())
+            {
+                replaced = true;
+                var mobile = Instantiate(mobileVariant);
+                mobile.name = mobileVariant.name;
+                Destroy(gameObject);
+                return;
+            }
+
+            // Интерфейс создан из кода (мобильный вместо ПК) — камера боя берётся из сцены
+            if (rtsCamera == null)
+                rtsCamera = FindObjectOfType<RtsCamera>();
+
             rtsCamera.Tapped += Camera_Tapped;
             rtsCamera.TryBeginObjectDrag = TryGrabGhost;
             rtsCamera.ObjectDragged += Ghost_Dragged;
@@ -192,8 +223,17 @@ namespace Generals
             toastText.enabled = false;
         }
 
+        bool WantsMobile() => choice switch
+        {
+            HudChoice.Mobile => true,
+            HudChoice.PC => false,
+            _ => Application.isMobilePlatform,
+        };
+
         void OnDestroy()
         {
+            if (replaced)
+                return;
             rtsCamera.Tapped -= Camera_Tapped;
             rtsCamera.ObjectDragged -= Ghost_Dragged;
             rtsCamera.ObjectDragEnded -= Ghost_Dragged;
@@ -206,7 +246,7 @@ namespace Generals
 
         void Update()
         {
-            if (Player == null)
+            if (replaced || Player == null)
                 return;
 
             resourcesText.text = $"Базовый ресурс: {Player.BaseResource}     Ценный: {Player.Valuable}     " +
@@ -387,9 +427,11 @@ namespace Generals
                 bar = freeHealthBars.Count > 0 ? freeHealthBars.Pop() : CreateHealthBar();
                 healthBars.Add(target, bar);
                 bar.rect.gameObject.SetActive(true);
-                bar.rect.sizeDelta = area != null
+                // Масштаб — по высоте образца: у мобильного интерфейса полоски крупнее
+                float k = healthBarTemplate.sizeDelta.y / 14f;
+                bar.rect.sizeDelta = k * (area != null
                     ? new Vector2(Mathf.Clamp(Mathf.Max(area.HalfExtents.x, area.HalfExtents.y) * 2f * 26f, 70f, 180f), 14f)
-                    : new Vector2(50f, 9f);
+                    : new Vector2(50f, 9f));
                 bar.fillImage.color = target.Faction == Player ? ownHealthColor : enemyHealthColor;
             }
 
@@ -701,6 +743,8 @@ namespace Generals
         // Кнопки едут над зданием
         void LateUpdate()
         {
+            if (replaced)
+                return;
             if (Player != null)
             {
                 UpdateBadges();

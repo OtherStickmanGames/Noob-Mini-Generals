@@ -14,15 +14,15 @@ namespace Generals.EditorTools
     {
         public const string PrefabPath = "Assets/Gameplay/Prefabs/HUD.prefab";
 
-        static readonly Color PanelColor = new(0.08f, 0.09f, 0.11f, 0.82f);
-        static readonly Color ButtonColor = new(0.22f, 0.25f, 0.30f, 1f);
-        static readonly Color AccentColor = new(0.24f, 0.52f, 0.28f, 1f);
-        static readonly Color CancelColor = new(0.62f, 0.2f, 0.18f, 1f);
-        static readonly Color ProgressBackColor = new(0f, 0f, 0f, 0.45f);
-        static readonly Color DefendColor = new(0.22f, 0.42f, 0.72f, 1f);
-        static readonly Color HealthBackColor = new(0f, 0f, 0f, 0.65f);
-        static readonly Color HealthLagColor = new(1f, 0.95f, 0.85f, 0.9f);
-        static readonly Color DimColor = new(0f, 0f, 0f, 0.55f);
+        internal static readonly Color PanelColor = new(0.08f, 0.09f, 0.11f, 0.82f);
+        internal static readonly Color ButtonColor = new(0.22f, 0.25f, 0.30f, 1f);
+        internal static readonly Color AccentColor = new(0.24f, 0.52f, 0.28f, 1f);
+        internal static readonly Color CancelColor = new(0.62f, 0.2f, 0.18f, 1f);
+        internal static readonly Color ProgressBackColor = new(0f, 0f, 0f, 0.45f);
+        internal static readonly Color DefendColor = new(0.22f, 0.42f, 0.72f, 1f);
+        internal static readonly Color HealthBackColor = new(0f, 0f, 0f, 0.65f);
+        internal static readonly Color HealthLagColor = new(1f, 0.95f, 0.85f, 0.9f);
+        internal static readonly Color DimColor = new(0f, 0f, 0f, 0.55f);
 
 
         [MenuItem("Tools/Voxel Arena/Rebuild HUD Prefab")]
@@ -40,7 +40,12 @@ namespace Generals.EditorTools
         public static GameObject GetOrBuild()
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
-            return prefab != null ? prefab : Build();
+            if (prefab != null)
+                return prefab;
+            Build();
+            // Новый ПК-интерфейс сразу со ссылкой на мобильный
+            HudMobilePrefabBuilder.EnsureAndLink();
+            return AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
         }
 
         static GameObject Build()
@@ -139,9 +144,15 @@ namespace Generals.EditorTools
             if (prefab == null || prefab.GetComponent<GameHud>() is not { } hud)
                 return;
             bool barracks = NeedsBarracksControls(hud), combat = NeedsCombatControls(hud);
-            if (!barracks && !combat)
-                return;
+            if (barracks || combat)
+                UpgradeControls(barracks, combat);
 
+            // Мобильный интерфейс: собрать, если его нет, и привязать к ПК-интерфейсу
+            HudMobilePrefabBuilder.EnsureAndLink();
+        }
+
+        static void UpgradeControls(bool barracks, bool combat)
+        {
             var root = PrefabUtility.LoadPrefabContents(PrefabPath);
             try
             {
@@ -289,7 +300,7 @@ namespace Generals.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        static Button MakeStretchButton(Transform parent, string name, string text, Vector2 anchorMin, Vector2 anchorMax,
+        internal static Button MakeStretchButton(Transform parent, string name, string text, Vector2 anchorMin, Vector2 anchorMax,
                                         Vector2 offsetMin, Vector2 offsetMax, Color color)
         {
             var rect = MakePanel(parent, name, anchorMin, anchorMax, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, color);
@@ -300,7 +311,7 @@ namespace Generals.EditorTools
             return button;
         }
 
-        static RectTransform MakePanel(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot,
+        internal static RectTransform MakePanel(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot,
                                    Vector2 position, Vector2 size, Color color)
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(Image));
@@ -318,7 +329,7 @@ namespace Generals.EditorTools
         }
 
         // Шрифт — TMP по умолчанию (LiberationSans SDF), кириллицу дорисовывает его динамический запасной шрифт
-        static TextMeshProUGUI MakeLabel(Transform parent, string text, int size, TextAlignmentOptions alignment)
+        internal static TextMeshProUGUI MakeLabel(Transform parent, string text, int size, TextAlignmentOptions alignment)
         {
             var go = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
             var rect = go.GetComponent<RectTransform>();
@@ -338,7 +349,7 @@ namespace Generals.EditorTools
         }
 
         // Кнопка с якорем и опорной точкой в одном месте
-        static Button MakeButton(Transform parent, string name, string text, Vector2 anchor, Vector2 position, Vector2 size, Color color)
+        internal static Button MakeButton(Transform parent, string name, string text, Vector2 anchor, Vector2 position, Vector2 size, Color color)
         {
             var rect = MakePanel(parent, name, anchor, anchor, anchor, position, size, color);
             var button = rect.gameObject.AddComponent<Button>();
