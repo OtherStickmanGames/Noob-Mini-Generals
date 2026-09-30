@@ -494,7 +494,7 @@ MonoBehaviour:
   placementHint: {fileID: 2457989645284885936}
   gridStyle:
     freeColor: {r: 0.60898006, g: 0.8018868, b: 0.63236266, a: 1}
-    blockedColor: {r: 0.9607843, g: 0.23529412, b: 0.1764706, a: 1}
+    blockedColor: {r: 0.8396226, g: 0.5135758, b: 0.48713955, a: 1}
     lineWidth: 0.045
     lineAlpha: 0.9
     fillAlpha: 0.16
@@ -503,9 +503,13 @@ MonoBehaviour:
   outlineStyle:
     validColor: {r: 0.35, g: 1, b: 0.4, a: 1}
     invalidColor: {r: 1, g: 0.22, b: 0.18, a: 1}
-    widthAt1080: 4
+    widthAt1080: 8
     hiddenLineAlpha: 0.45
     hiddenFillAlpha: 0.25
+  sceneStyle:
+    opacity: 0.9
+    desaturate: 0.6
+    darken: 0.2
   selectionPanel: {fileID: 145322417571558570}
   selectionTitle: {fileID: 547002667419282749}
   selectionInfo: {fileID: 102373203050900954}
