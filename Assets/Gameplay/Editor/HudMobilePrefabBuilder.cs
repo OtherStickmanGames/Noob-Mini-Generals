@@ -49,9 +49,9 @@ namespace Generals.EditorTools
                 var contents = PrefabUtility.LoadPrefabContents(PrefabPath);
                 try
                 {
-                    AddReinforceControls(contents, true);
+                    ReplaceReinforceControls(contents, true);
                     PrefabUtility.SaveAsPrefabAsset(contents, PrefabPath);
-                    Debug.Log("[HUD] В мобильный интерфейс добавлен список отрядов пункта подкрепления");
+                    Debug.Log("[HUD] В мобильном интерфейсе список отрядов пункта подкрепления — с прокруткой");
                 }
                 finally
                 {

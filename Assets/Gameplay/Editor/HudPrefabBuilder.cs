@@ -23,6 +23,8 @@ namespace Generals.EditorTools
         internal static readonly Color HealthBackColor = new(0f, 0f, 0f, 0.65f);
         internal static readonly Color HealthLagColor = new(1f, 0.95f, 0.85f, 0.9f);
         internal static readonly Color DimColor = new(0f, 0f, 0f, 0.55f);
+        internal static readonly Color ScrollTrackColor = new(0f, 0f, 0f, 0.35f);
+        internal static readonly Color ScrollHandleColor = new(0.75f, 0.78f, 0.82f, 0.9f);
 
 
         [MenuItem("Tools/Voxel Arena/Rebuild HUD Prefab")]
@@ -166,14 +168,14 @@ namespace Generals.EditorTools
                 if (combat)
                     AddCombatControls(root);
                 if (reinforce)
-                    AddReinforceControls(root, false);
+                    ReplaceReinforceControls(root, false);
                 PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
                 if (barracks)
                     Debug.Log("[HUD] В префаб HUD добавлены панель казарм и значки поведения");
                 if (combat)
                     Debug.Log("[HUD] В префаб HUD добавлены полоски прочности и итоги боя");
                 if (reinforce)
-                    Debug.Log("[HUD] В префаб HUD добавлен список отрядов пункта подкрепления");
+                    Debug.Log("[HUD] В префабе HUD список отрядов пункта подкрепления — с прокруткой");
             }
             finally
             {
@@ -223,8 +225,9 @@ namespace Generals.EditorTools
             icon.gameObject.SetActive(false);
         }
 
+        // Нет списка отрядов или он старый, без прокрутки
         internal static bool NeedsReinforceControls(GameHud hud) =>
-            new SerializedObject(hud).FindProperty("reinforcePanel").objectReferenceValue == null;
+            new SerializedObject(hud).FindProperty("reinforceList").objectReferenceValue == null;
 
         /// <summary>
         /// Список отрядов пункта подкрепления — над панелью выбранного здания (её дочерний объект,
@@ -254,7 +257,63 @@ namespace Generals.EditorTools
             header.fontStyle = FontStyles.Bold;
             header.gameObject.AddComponent<LayoutElement>().preferredHeight = 46f * k;
 
-            var row = MakePanel(panel, "Reinforce Row Template", Vector2.zero, Vector2.zero, new Vector2(0.5f, 0.5f),
+            // Список с прокруткой: видно reinforceMaxRows строк (высоту задаёт GameHud), остальное —
+            // колесом, перетаскиванием или пальцем; справа скроллбар, он появляется, только если есть что листать
+            var list = MakePanel(panel, "List", Vector2.zero, Vector2.zero, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, Color.clear);
+            list.GetComponent<Image>().raycastTarget = true;
+            var listLayout = list.gameObject.AddComponent<LayoutElement>();
+            listLayout.preferredHeight = 66f * k;
+            var scroll = list.gameObject.AddComponent<ScrollRect>();
+            scroll.horizontal = false;
+            scroll.vertical = true;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            scroll.scrollSensitivity = 40f * k;
+
+            var viewport = MakePanel(list, "Viewport", Vector2.zero, Vector2.one, new Vector2(0f, 1f), Vector2.zero, Vector2.zero, Color.clear);
+            viewport.offsetMin = Vector2.zero;
+            viewport.offsetMax = Vector2.zero;
+            viewport.GetComponent<Image>().raycastTarget = true;
+            viewport.gameObject.AddComponent<RectMask2D>();
+
+            var content = new GameObject("Content", typeof(RectTransform)).GetComponent<RectTransform>();
+            content.SetParent(viewport, false);
+            content.anchorMin = new Vector2(0f, 1f);
+            content.anchorMax = Vector2.one;
+            content.pivot = new Vector2(0.5f, 1f);
+            content.offsetMin = Vector2.zero;
+            content.offsetMax = Vector2.zero;
+            var rows = content.gameObject.AddComponent<VerticalLayoutGroup>();
+            rows.spacing = 8f * k;
+            rows.childControlWidth = true;
+            rows.childControlHeight = true;
+            rows.childForceExpandWidth = true;
+            rows.childForceExpandHeight = false;
+            content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            float barWidth = (mobile ? 18f : 12f) * k;
+            var bar = MakePanel(list, "Scrollbar", new Vector2(1f, 0f), Vector2.one, new Vector2(1f, 0.5f),
+                                Vector2.zero, new Vector2(barWidth, 0f), ScrollTrackColor);
+            var slidingArea = new GameObject("Sliding Area", typeof(RectTransform)).GetComponent<RectTransform>();
+            slidingArea.SetParent(bar, false);
+            slidingArea.anchorMin = Vector2.zero;
+            slidingArea.anchorMax = Vector2.one;
+            slidingArea.offsetMin = Vector2.zero;
+            slidingArea.offsetMax = Vector2.zero;
+            var handle = MakePanel(slidingArea, "Handle", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, ScrollHandleColor);
+            handle.offsetMin = Vector2.zero;
+            handle.offsetMax = Vector2.zero;
+            var scrollbar = bar.gameObject.AddComponent<Scrollbar>();
+            scrollbar.handleRect = handle;
+            scrollbar.targetGraphic = handle.GetComponent<Image>();
+            scrollbar.direction = Scrollbar.Direction.BottomToTop;
+
+            scroll.viewport = viewport;
+            scroll.content = content;
+            scroll.verticalScrollbar = scrollbar;
+            scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHideAndExpandViewport;
+            scroll.verticalScrollbarSpacing = 6f * k;
+
+            var row = MakePanel(content, "Reinforce Row Template", Vector2.zero, Vector2.zero, new Vector2(0.5f, 0.5f),
                                 Vector2.zero, Vector2.zero, new Color(1f, 1f, 1f, 0.06f));
             row.GetComponent<Image>().raycastTarget = false;
             row.gameObject.AddComponent<LayoutElement>().preferredHeight = 66f * k;
@@ -271,10 +330,28 @@ namespace Generals.EditorTools
             note.gameObject.AddComponent<LayoutElement>().preferredHeight = 40f * k;
 
             so.FindProperty("reinforcePanel").objectReferenceValue = panel.gameObject;
+            so.FindProperty("reinforceList").objectReferenceValue = scroll;
             so.FindProperty("reinforceRowTemplate").objectReferenceValue = row;
             so.FindProperty("reinforceNote").objectReferenceValue = note;
             so.FindProperty("reinforceMaxRows").intValue = mobile ? 4 : 6;
             so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>
+        /// Первая версия списка отрядов была без прокрутки (обрезалась «…и ещё N») — заменить целиком
+        /// на список с прокруткой
+        /// </summary>
+        internal static void ReplaceReinforceControls(GameObject root, bool mobile)
+        {
+            var so = new SerializedObject(root.GetComponent<GameHud>());
+            var old = so.FindProperty("reinforcePanel").objectReferenceValue as GameObject;
+            if (old != null)
+                Object.DestroyImmediate(old);
+            so.FindProperty("reinforcePanel").objectReferenceValue = null;
+            so.FindProperty("reinforceRowTemplate").objectReferenceValue = null;
+            so.FindProperty("reinforceNote").objectReferenceValue = null;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            AddReinforceControls(root, mobile);
         }
 
         static bool NeedsCombatControls(GameHud hud)

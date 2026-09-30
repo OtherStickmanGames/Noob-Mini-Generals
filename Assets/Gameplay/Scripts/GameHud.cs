@@ -57,10 +57,13 @@ namespace Generals
         [Header("Пункт подкрепления")]
         [Tooltip("Список отрядов над панелью здания — только у своего пункта подкрепления")]
         [SerializeField] GameObject reinforcePanel;
+        [Tooltip("Список отрядов с прокруткой; строки — в его Content")]
+        [SerializeField] ScrollRect reinforceList;
         [Tooltip("Образец строки отряда: дочерние Label (текст) и Reinforce (кнопка «Пополнить»)")]
         [SerializeField] RectTransform reinforceRowTemplate;
-        [Tooltip("Строка под списком: «отрядов нет» или «и ещё N»")]
+        [Tooltip("Строка вместо списка, когда отрядов нет")]
         [SerializeField] TMP_Text reinforceNote;
+        [Tooltip("Сколько строк видно без прокрутки")]
         [SerializeField] int reinforceMaxRows = 6;
 
         [Header("Значки над казармами")]
@@ -1003,13 +1006,28 @@ namespace Generals
             if (point == null)
                 return;
 
+            // Все отряды, самые потрёпанные — сверху (по фактическим бойцам, а не с учётом заказанных:
+            // после нажатия «Пополнить» строка не прыгает из-под пальца), дальше по номеру
             reinforceSquads.Clear();
             foreach (var s in Player.squads)
                 if (s.IsAlive)
                     reinforceSquads.Add(s);
-            reinforceSquads.Sort((a, b) => a.Number.CompareTo(b.Number));
+            reinforceSquads.Sort((a, b) =>
+            {
+                int byLosses = a.Members.Count.CompareTo(b.Members.Count);
+                return byLosses != 0 ? byLosses : a.Number.CompareTo(b.Number);
+            });
 
-            int count = Mathf.Min(reinforceSquads.Count, reinforceMaxRows);
+            // Видно не больше reinforceMaxRows строк, остальное — прокруткой
+            int count = reinforceSquads.Count;
+            var listLayout = reinforceList.GetComponent<LayoutElement>();
+            float rowHeight = reinforceRowTemplate.GetComponent<LayoutElement>().preferredHeight;
+            float spacing = reinforceList.content.GetComponent<VerticalLayoutGroup>().spacing;
+            int visibleRows = Mathf.Clamp(count, 1, reinforceMaxRows);
+            listLayout.preferredHeight = visibleRows * rowHeight + (visibleRows - 1) * spacing;
+            if (reinforceList.gameObject.activeSelf != (count > 0))
+                reinforceList.gameObject.SetActive(count > 0);
+
             while (reinforceRows.Count < count)
                 reinforceRows.Add(CreateReinforceRow(reinforceRows.Count));
 
@@ -1039,22 +1057,17 @@ namespace Generals
                                           Player.CanAfford(missing * UnitCatalog.ReinforceCost, 0);
             }
 
-            int hidden = reinforceSquads.Count - count;
-            string note = reinforceSquads.Count == 0 ? "Отрядов нет — наймите в казармах"
-                : hidden > 0 ? $"…и ещё отрядов: {hidden}"
-                : null;
-            if (reinforceNote.gameObject.activeSelf != (note != null))
-                reinforceNote.gameObject.SetActive(note != null);
-            if (note != null)
-                reinforceNote.text = note;
+            if (reinforceNote.gameObject.activeSelf != (count == 0))
+                reinforceNote.gameObject.SetActive(count == 0);
+            if (count == 0)
+                reinforceNote.text = "Отрядов нет — наймите в казармах";
         }
 
         ReinforceRow CreateReinforceRow(int index)
         {
             var rect = Instantiate(reinforceRowTemplate, reinforceRowTemplate.parent);
             rect.name = "Reinforce Row " + index;
-            // Строки — перед строкой-примечанием
-            rect.SetSiblingIndex(reinforceNote.transform.GetSiblingIndex());
+            rect.SetAsLastSibling();
             var button = rect.Find("Reinforce").GetComponent<Button>();
             var row = new ReinforceRow
             {
