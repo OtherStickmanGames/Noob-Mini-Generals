@@ -103,6 +103,9 @@
 | `Faction.cs` | Сторона: ресурсы, уровень стен, здания, строители, очередь найма. |
 | `StructureCatalog.cs` | Типы зданий (Headquarters, Extractor, Mine, Barracks, Turret), размеры, цены, время, HP, правило места (`InsideWalls`, `BaseArea`, `Deposit`), экономические константы. |
 | `Structure.cs` | Здание: модель поднимается из земли по мере стройки, доход, `BoxCollider` для тапа, `NavMeshObstacle` с вырезанием. |
+| `UnitCatalog.cs` | Поведение казарм (`BarracksBehavior`: Defend, Attack), цифры пехоты (цена, найм, HP, скорость, дальность, обзор, радиус обороны), лимит очереди. |
+| `Barracks.cs` | Компонент казарм рядом со `Structure`: очередь найма, прогресс, поведение (на всех бойцов этих казарм), список бойцов. |
+| `InfantryUnit.cs` | Пехотинец на NavMeshAgent: поведение от казарм; оборона — пост у ворот (`MatchManager.DefendPost`), атака — ближайшие враги, иначе здания противника; останавливается на дальности стрельбы. Коллайдер-триггер (тап его не выбирает). |
 | `BuilderUnit.cs` | Строитель на NavMeshAgent: сам берёт ближайшую незанятую стройку (`MatchManager.ClaimSite`). |
 | `CapturePoint.cs` | Точка захвата: радиус 4 м, захват 10 с, владелец, флаг, доход. Захватчики — через интерфейс `ICapturer` и статический список. |
 | `BuildGrid.cs` | Занятость клеток, проверка места (`CanPlace`, по клеткам — `IsCellBuildable`), поиск места (`FindNearest`, `FindNearestFree`, `HasClearance`). |
@@ -114,6 +117,7 @@
 | `BuildModeVisuals.cs` | Вид арены при установке: ключ шейдера, прозрачность и приглушение материалов. |
 | `Rendering/OutlineFeature.cs`, `Rendering/SelectionOutline.cs`, `Resources/Outline.shader` | Экранный контур (URP Renderer Feature): маска силуэта с буфером глубины камеры → линия постоянной толщины в пикселях, тусклее за препятствиями. |
 | `Editor/HudPrefabBuilder.cs` | Собирает `HUD.prefab` (Canvas Scale With Screen Size 1920×1080, TMP). Меню Tools/Voxel Arena/Rebuild HUD Prefab (ручные правки префаба пропадут). |
+| `Editor/HudPrefabUpgrader.cs` | После компиляции дополняет существующий `HUD.prefab` недостающими элементами (`HudPrefabBuilder.UpgradeIfNeeded`), не трогая ручные правки. Новые элементы интерфейса добавлять так же, а не пересборкой префаба. |
 | `Editor/OutlineFeatureInstaller.cs` | Сам добавляет `OutlineFeature` во все ассеты рендерера URP. |
 
 Порядок отрисовки в режиме установки: земля (непрозрачная, без стен) → прозрачные стены и

@@ -250,7 +250,83 @@ namespace Generals
             faction.builders.Add(builder);
         }
 
+        // ---------- Пехота ----------
+
+        /// <summary>Боец выходит из казарм со стороны своих ворот. null — выйти негде (NavMesh не готов)</summary>
+        public InfantryUnit SpawnInfantry(Faction faction, Barracks barracks, BarracksBehavior behavior)
+        {
+            var gate = GateOf(faction);
+            var from = barracks != null ? barracks.Structure.ClosestEdgePoint(gate, 1f) : gate;
+            return SpawnInfantryAt(faction, barracks, behavior, from);
+        }
+
+        InfantryUnit SpawnInfantryAt(Faction faction, Barracks barracks, BarracksBehavior behavior, Vector3 point)
+        {
+            if (!navMesh.HasNavMesh || !NavMesh.SamplePosition(point, out var hit, 4f, NavMesh.AllAreas))
+                return null;
+
+            var go = new GameObject();
+            var look = GateOf(faction) - hit.position;
+            look.y = 0f;
+            go.transform.SetPositionAndRotation(hit.position, look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity);
+            spawned.Add(go);
+
+            var unit = go.AddComponent<InfantryUnit>();
+            unit.Init(faction, barracks, behavior, arena.Material);
+            faction.units.Add(unit);
+            if (barracks != null)
+                barracks.Units.Add(unit);
+            return unit;
+        }
+
+        /// <summary>Мировая точка сразу снаружи ворот базы стороны</summary>
+        public Vector3 GateOf(Faction faction) => faction.team == 0 ? arena.GateOne : arena.GateTwo;
+
+        /// <summary>
+        /// Пост защитника: ряды за воротами внутри стен, лицом к воротам. Место в строю — порядковый
+        /// номер бойца среди защитников его стороны, поэтому строй сам уплотняется.
+        /// </summary>
+        public Vector3 DefendPost(InfantryUnit unit)
+        {
+            var faction = unit.Faction;
+            int index = 0, slot = 0;
+            foreach (var u in faction.units)
+            {
+                if (u == null || u.Behavior != BarracksBehavior.Defend)
+                    continue;
+                if (u == unit)
+                    index = slot;
+                slot++;
+            }
+
+            var gate = GateOf(faction);
+            var center = faction.team == 0 ? arena.BaseOne : arena.BaseTwo;
+            var inward = center - gate;
+            inward.y = 0f;
+            inward.Normalize();
+            var side = new Vector3(inward.z, 0f, -inward.x);
+
+            const int perRow = 6;
+            const float spacing = 1.3f;
+            int row = index / perRow, column = index % perRow;
+            float lateral = (column - (perRow - 1) * 0.5f) * spacing;
+            return gate + inward * (5f + row * spacing) + side * lateral;
+        }
+
         // ---------- Отладка ----------
+
+        /// <summary>Отряд противника в атаке у его ворот (пока нет ИИ противника — шаг 6)</summary>
+        public void DebugSpawnEnemySquad(int count)
+        {
+            var gate = GateOf(Enemy);
+            var center = arena.BaseTwo;
+            var outward = gate - center;
+            outward.y = 0f;
+            outward.Normalize();
+            var side = new Vector3(outward.z, 0f, -outward.x);
+            for (int i = 0; i < count; i++)
+                SpawnInfantryAt(Enemy, null, BarracksBehavior.Attack, gate + outward * 2f + side * ((i - (count - 1) * 0.5f) * 1.2f));
+        }
 
         /// <summary>Отдать игроку ближайшую к точке точку захвата (пока нет боевых юнитов)</summary>
         public void DebugCaptureNearest(Vector3 position, int team)

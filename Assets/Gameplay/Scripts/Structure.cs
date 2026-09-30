@@ -19,6 +19,11 @@ namespace Generals
         /// <summary>Для шахты на точке захвата</summary>
         public CapturePoint CapturePoint { get; private set; }
         public BuilderUnit AssignedBuilder { get; set; }
+        /// <summary>Очередь найма и поведение бойцов — только у казарм</summary>
+        public Barracks Barracks { get; private set; }
+
+        /// <summary>Высота модели здания, м</summary>
+        public float Height => modelHeight;
 
         /// <summary>Половина размера в мировых единицах по x и z</summary>
         public Vector2 HalfExtents { get; private set; }
@@ -67,6 +72,12 @@ namespace Generals
             obstacle.size = box.size;
             obstacle.carving = true;
             obstacle.carveOnlyStationary = true;
+
+            if (def.type == StructureType.Barracks)
+            {
+                Barracks = gameObject.AddComponent<Barracks>();
+                Barracks.Init(this);
+            }
 
             if (built)
                 Complete();

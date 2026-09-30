@@ -46,6 +46,19 @@ namespace Generals
         [SerializeField] TMP_Text selectionTitle;
         [SerializeField] TMP_Text selectionInfo;
         [SerializeField] Button hireButton;
+        [Tooltip("Заполнение полосы прогресса найма: ширина задаётся правым якорем")]
+        [SerializeField] RectTransform hireProgressFill;
+        [Tooltip("Строка «Оборона / Атака» — только у казарм")]
+        [SerializeField] GameObject behaviorRow;
+        [SerializeField] Button defendButton;
+        [SerializeField] Button attackButton;
+
+        [Header("Значки над казармами")]
+        [Tooltip("Образец значка поведения: копируется по одному на каждые свои казармы")]
+        [SerializeField] RectTransform barracksBadgeTemplate;
+        [SerializeField] Color defendColor = new(0.22f, 0.42f, 0.72f, 1f);
+        [SerializeField] Color attackColor = new(0.72f, 0.26f, 0.2f, 1f);
+        [SerializeField] Color inactiveColor = new(0.22f, 0.25f, 0.30f, 1f);
 
         public RtsCamera RtsCamera
         {
@@ -68,6 +81,14 @@ namespace Generals
         float ghostHeight;
         BuildGridOverlay gridOverlay;
 
+        // Значки поведения над своими казармами
+        readonly Dictionary<Barracks, RectTransform> badges = new();
+        readonly List<Barracks> badgeCleanup = new();
+
+        // Высота панели выбранного здания со строкой поведения и без неё
+        float selectionHeightWithBehavior;
+        float BehaviorRowHeight => ((RectTransform)behaviorRow.transform).rect.height + 20f;
+
         MatchManager Match => MatchManager.Instance;
         Faction Player => Match.Player;
 
@@ -85,8 +106,11 @@ namespace Generals
             });
             confirmButton.onClick.AddListener(ConfirmPlacing);
             cancelButton.onClick.AddListener(CancelPlacing);
-            hireButton.onClick.AddListener(HireBuilder);
-            SetButtonText(hireButton, $"Нанять строителя · {StructureCatalog.BuilderCost}");
+            hireButton.onClick.AddListener(HireForSelected);
+            defendButton.onClick.AddListener(() => SetSelectedBehavior(BarracksBehavior.Defend));
+            attackButton.onClick.AddListener(() => SetSelectedBehavior(BarracksBehavior.Attack));
+            selectionHeightWithBehavior = ((RectTransform)selectionPanel.transform).sizeDelta.y;
+            barracksBadgeTemplate.gameObject.SetActive(false);
 
             buildButtonTemplate.gameObject.SetActive(false);
             foreach (var def in StructureCatalog.All)
@@ -151,6 +175,13 @@ namespace Generals
                 if (placingDef != null)
                     gridOverlay.MarkDirty();
             }
+
+            // Отладка: отряд противника в атаке у его ворот (пока нет ИИ противника)
+            if (Input.GetKeyDown(KeyCode.V))
+            {
+                Match.DebugSpawnEnemySquad(3);
+                Toast("Отряд противника идёт в атаку (отладка)");
+            }
         }
 
         int OwnedPoints()
@@ -183,7 +214,9 @@ namespace Generals
             }
 
             var ray = rtsCamera.Camera.ScreenPointToRay(screen);
-            if (Physics.Raycast(ray, out var anyHit, 1000f) && anyHit.collider.TryGetComponent<Structure>(out var structure))
+            // Бойцы — триггеры и тапом не выбираются (непрямое управление), их пропускаем
+            if (Physics.Raycast(ray, out var anyHit, 1000f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) &&
+                anyHit.collider.TryGetComponent<Structure>(out var structure))
                 Select(structure);
             else
                 Select(null);
@@ -381,7 +414,7 @@ namespace Generals
 
                 var toPoint = p - origin;
                 float distance = toPoint.magnitude;
-                if (Physics.Raycast(origin, toPoint / distance, distance - 0.05f))
+                if (Physics.Raycast(origin, toPoint / distance, distance - 0.05f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
                     return false;
             }
             return true;
@@ -431,6 +464,9 @@ namespace Generals
         // Кнопки едут над зданием
         void LateUpdate()
         {
+            if (Player != null)
+                UpdateBadges();
+
             if (placingDef == null || ghost == null || !ghost.activeSelf)
                 return;
 
@@ -543,19 +579,43 @@ namespace Generals
             selectionTitle.text = own ? selected.Def.name : $"{selected.Def.name} (противник)";
 
             bool isHq = own && selected.Def.type == StructureType.Headquarters;
-            hireButton.gameObject.SetActive(isHq);
+            var barracks = own ? selected.Barracks : null;
+
+            // Найм: у главного здания — строители, у казарм — пехота
+            bool canHire = isHq || barracks != null;
+            hireButton.gameObject.SetActive(canHire);
+            hireProgressFill.transform.parent.gameObject.SetActive(canHire);
+            SetBehaviorRowVisible(barracks != null);
 
             if (!selected.IsBuilt)
             {
                 string who = selected.AssignedBuilder != null ? "строитель работает" : "ждёт строителя";
                 selectionInfo.text = $"Строится: {selected.Progress:P0}, {who}";
+                hireButton.interactable = false;
+                SetHireProgress(0f);
+                if (barracks != null)
+                    SetButtonText(hireButton, $"Нанять: {UnitCatalog.InfantryName.ToLower()} · {UnitCatalog.InfantryCost}");
             }
             else if (isHq)
             {
+                SetButtonText(hireButton, $"Нанять строителя · {StructureCatalog.BuilderCost}");
                 hireButton.interactable = Player.CanAfford(StructureCatalog.BuilderCost, 0);
+                SetHireProgress(Player.buildersQueued > 0 ? Player.hireProgress : 0f);
                 selectionInfo.text = Player.buildersQueued > 0
-                    ? $"Найм строителя: {Player.hireProgress:P0}, в очереди {Player.buildersQueued}"
+                    ? $"Найм строителя, в очереди {Player.buildersQueued}"
                     : "Производит базовый ресурс";
+            }
+            else if (barracks != null)
+            {
+                SetButtonText(hireButton, $"Нанять: {UnitCatalog.InfantryName.ToLower()} · {UnitCatalog.InfantryCost}");
+                hireButton.interactable = barracks.Queued < UnitCatalog.BarracksQueueLimit &&
+                                          Player.CanAfford(UnitCatalog.InfantryCost, 0);
+                SetHireProgress(barracks.Queued > 0 ? barracks.Progress : 0f);
+
+                string behavior = barracks.Behavior == BarracksBehavior.Defend
+                    ? "Оборона: держат пост у ворот"
+                    : "Атака: идут на врага";
+                selectionInfo.text = $"Бойцов: {barracks.Units.Count}   В очереди: {barracks.Queued}/{UnitCatalog.BarracksQueueLimit}\n{behavior}";
             }
             else if (selected.Def.type == StructureType.Extractor)
             {
@@ -571,12 +631,92 @@ namespace Generals
             {
                 selectionInfo.text = $"Прочность: {selected.Health:0}";
             }
+
+            if (barracks != null)
+            {
+                bool defend = barracks.Behavior == BarracksBehavior.Defend;
+                defendButton.image.color = defend ? defendColor : inactiveColor;
+                attackButton.image.color = defend ? inactiveColor : attackColor;
+            }
         }
 
-        void HireBuilder()
+        void SetHireProgress(float progress)
         {
-            if (!Match.TryHireBuilder(Player, out var reason))
+            hireProgressFill.anchorMax = new Vector2(Mathf.Clamp01(progress), 1f);
+        }
+
+        // Строка поведения есть только у казарм; без неё панель ниже, верхние строки опускаются
+        void SetBehaviorRowVisible(bool visible)
+        {
+            if (behaviorRow.activeSelf == visible)
+                return;
+            behaviorRow.SetActive(visible);
+            var rect = (RectTransform)selectionPanel.transform;
+            rect.sizeDelta = new Vector2(rect.sizeDelta.x, visible ? selectionHeightWithBehavior : selectionHeightWithBehavior - BehaviorRowHeight);
+        }
+
+        void HireForSelected()
+        {
+            if (selected == null)
+                return;
+
+            string reason;
+            bool ok = selected.Barracks != null
+                ? selected.Barracks.TryHire(out reason)
+                : Match.TryHireBuilder(Player, out reason);
+            if (!ok)
                 Toast(reason);
+        }
+
+        void SetSelectedBehavior(BarracksBehavior behavior)
+        {
+            if (selected != null && selected.Barracks != null && selected.Faction == Player)
+                selected.Barracks.SetBehavior(behavior);
+        }
+
+        // ---------- Значки над казармами ----------
+
+        // Над каждыми своими казармами — плашка с текущим поведением; при установке здания скрыты
+        void UpdateBadges()
+        {
+            foreach (var s in Player.structures)
+            {
+                if (s == null || s.Barracks == null || badges.ContainsKey(s.Barracks))
+                    continue;
+                var badge = Instantiate(barracksBadgeTemplate, barracksBadgeTemplate.parent);
+                badge.name = "Badge " + s.name;
+                // Сразу за образцом: под панелями и кнопками интерфейса
+                badge.SetSiblingIndex(barracksBadgeTemplate.GetSiblingIndex() + 1);
+                badges.Add(s.Barracks, badge);
+            }
+
+            var cam = rtsCamera.Camera;
+            badgeCleanup.Clear();
+            foreach (var (barracks, badge) in badges)
+            {
+                if (barracks == null)
+                {
+                    badgeCleanup.Add(barracks);
+                    if (badge != null)
+                        Destroy(badge.gameObject);
+                    continue;
+                }
+
+                var top = barracks.transform.position + Vector3.up * (barracks.Structure.Height + 0.8f);
+                var screen = cam.WorldToScreenPoint(top);
+                bool visible = placingDef == null && screen.z > 0f;
+                if (badge.gameObject.activeSelf != visible)
+                    badge.gameObject.SetActive(visible);
+                if (!visible)
+                    continue;
+
+                badge.position = screen;
+                bool defend = barracks.Behavior == BarracksBehavior.Defend;
+                badge.GetComponent<Image>().color = defend ? defendColor : attackColor;
+                badge.GetComponentInChildren<TMP_Text>().text = defend ? "Оборона" : "Атака";
+            }
+            foreach (var b in badgeCleanup)
+                badges.Remove(b);
         }
 
         void Toast(string text)

@@ -18,6 +18,8 @@ namespace Generals.EditorTools
         static readonly Color ButtonColor = new(0.22f, 0.25f, 0.30f, 1f);
         static readonly Color AccentColor = new(0.24f, 0.52f, 0.28f, 1f);
         static readonly Color CancelColor = new(0.62f, 0.2f, 0.18f, 1f);
+        static readonly Color ProgressBackColor = new(0f, 0f, 0f, 0.45f);
+        static readonly Color DefendColor = new(0.22f, 0.42f, 0.72f, 1f);
 
 
         [MenuItem("Tools/Voxel Arena/Rebuild HUD Prefab")]
@@ -114,10 +116,102 @@ namespace Generals.EditorTools
             so.FindProperty("hireButton").objectReferenceValue = hire;
             so.ApplyModifiedPropertiesWithoutUndo();
 
+            AddBarracksControls(root);
+
             Directory.CreateDirectory(Path.GetDirectoryName(PrefabPath));
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
             Object.DestroyImmediate(root);
             return prefab;
+        }
+
+        /// <summary>
+        /// Дополняет уже существующий префаб HUD элементами, которых в нём ещё нет (панель казарм,
+        /// значок поведения), не трогая остальное — ручные правки сохраняются.
+        /// Вызывается сам после компиляции (HudPrefabUpgrader).
+        /// </summary>
+        public static void UpgradeIfNeeded()
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
+            if (prefab == null || prefab.GetComponent<GameHud>() is not { } hud || !NeedsBarracksControls(hud))
+                return;
+
+            var root = PrefabUtility.LoadPrefabContents(PrefabPath);
+            try
+            {
+                AddBarracksControls(root);
+                PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
+                Debug.Log("[HUD] В префаб HUD добавлены панель казарм и значки поведения");
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+
+        static bool NeedsBarracksControls(GameHud hud)
+        {
+            var so = new SerializedObject(hud);
+            return so.FindProperty("hireProgressFill").objectReferenceValue == null ||
+                   so.FindProperty("behaviorRow").objectReferenceValue == null ||
+                   so.FindProperty("barracksBadgeTemplate").objectReferenceValue == null;
+        }
+
+        // Панель выбранного здания становится выше: полоса прогресса найма под описанием и строка
+        // «Оборона / Атака» над кнопкой найма. Плюс образец значка поведения над казармами.
+        static void AddBarracksControls(GameObject root)
+        {
+            var hud = root.GetComponent<GameHud>();
+            var so = new SerializedObject(hud);
+            var selection = ((GameObject)so.FindProperty("selectionPanel").objectReferenceValue).GetComponent<RectTransform>();
+
+            if (so.FindProperty("hireProgressFill").objectReferenceValue == null)
+            {
+                selection.sizeDelta += new Vector2(0f, 130f);
+                var bar = MakePanel(selection, "Hire Progress", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
+                                    new Vector2(0f, -165f), new Vector2(-40f, 22f), ProgressBackColor);
+                bar.GetComponent<Image>().raycastTarget = false;
+                var fill = MakePanel(bar, "Fill", Vector2.zero, new Vector2(0f, 1f), new Vector2(0f, 0.5f),
+                                     Vector2.zero, Vector2.zero, AccentColor);
+                fill.GetComponent<Image>().raycastTarget = false;
+                so.FindProperty("hireProgressFill").objectReferenceValue = fill;
+            }
+
+            if (so.FindProperty("behaviorRow").objectReferenceValue == null)
+            {
+                var row = MakePanel(selection, "Behavior", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f),
+                                    new Vector2(0f, 135f), new Vector2(-40f, 90f), Color.clear);
+                var defend = MakeStretchButton(row, "Defend", "Оборона", new Vector2(0f, 0f), new Vector2(0.5f, 1f),
+                                               Vector2.zero, new Vector2(-6f, 0f), DefendColor);
+                var attack = MakeStretchButton(row, "Attack", "Атака", new Vector2(0.5f, 0f), new Vector2(1f, 1f),
+                                               new Vector2(6f, 0f), Vector2.zero, ButtonColor);
+                so.FindProperty("behaviorRow").objectReferenceValue = row.gameObject;
+                so.FindProperty("defendButton").objectReferenceValue = defend;
+                so.FindProperty("attackButton").objectReferenceValue = attack;
+            }
+
+            if (so.FindProperty("barracksBadgeTemplate").objectReferenceValue == null)
+            {
+                var badge = MakePanel(root.transform, "Barracks Badge Template", Vector2.zero, Vector2.zero, new Vector2(0.5f, 0f),
+                                      Vector2.zero, new Vector2(190f, 50f), DefendColor);
+                badge.GetComponent<Image>().raycastTarget = false;
+                MakeLabel(badge, "Оборона", 28, TextAlignmentOptions.Center);
+                // Значки — под остальным интерфейсом
+                badge.SetAsFirstSibling();
+                so.FindProperty("barracksBadgeTemplate").objectReferenceValue = badge;
+            }
+
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        static Button MakeStretchButton(Transform parent, string name, string text, Vector2 anchorMin, Vector2 anchorMax,
+                                        Vector2 offsetMin, Vector2 offsetMax, Color color)
+        {
+            var rect = MakePanel(parent, name, anchorMin, anchorMax, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, color);
+            rect.offsetMin = offsetMin;
+            rect.offsetMax = offsetMax;
+            var button = rect.gameObject.AddComponent<Button>();
+            MakeLabel(rect, text, 34, TextAlignmentOptions.Center);
+            return button;
         }
 
         static RectTransform MakePanel(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot,

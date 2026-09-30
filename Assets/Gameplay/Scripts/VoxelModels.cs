@@ -32,6 +32,8 @@ namespace Generals
 
         public static Mesh Builder(int team) => Get($"Builder_{team}", () => BuilderModel(team));
 
+        public static Mesh Infantry(int team) => Get($"Infantry_{team}", () => InfantryModel(team));
+
         /// <summary>Флаг точки захвата; team = -1 — ничья</summary>
         public static Mesh Flag(int team) => Get($"Flag_{team}", () => FlagModel(team));
 
@@ -140,6 +142,20 @@ namespace Generals
             m.Box(0, 3, 0, 3, 3, 3, color);            // корпус
             m.Box(1, 6, 1, 1, 1, 1, Sand);             // голова
             m.Box(0, 7, 0, 3, 1, 3, GoldOre);          // каска строителя
+            return m;
+        }
+
+        // Смотрит в +z, винтовка у правого бока стволом вперёд
+        static Model InfantryModel(int team)
+        {
+            byte color = TeamColor(team), dark = TeamColorDark(team);
+            var m = new Model(3, 8, 4);
+            m.Box(0, 0, 1, 1, 3, 1, dark);             // ноги
+            m.Box(2, 0, 1, 1, 3, 1, dark);
+            m.Box(0, 3, 0, 3, 3, 3, color);            // корпус
+            m.Box(1, 6, 1, 1, 1, 1, Sand);             // голова
+            m.Box(0, 7, 0, 3, 1, 3, dark);             // каска
+            m.Box(2, 4, 1, 1, 1, 3, Metal);            // винтовка
             return m;
         }
 

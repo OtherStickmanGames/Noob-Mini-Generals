@@ -18,6 +18,7 @@ namespace Generals
         public Structure headquarters;
         public readonly List<Structure> structures = new();
         public readonly List<BuilderUnit> builders = new();
+        public readonly List<InfantryUnit> units = new();
 
         // Найм строителей в главном здании
         public int buildersQueued;
