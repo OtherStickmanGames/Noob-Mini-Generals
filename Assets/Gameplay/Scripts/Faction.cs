@@ -24,6 +24,12 @@ namespace Generals
         public int buildersQueued;
         public float hireProgress;
 
+        // Итоги боя
+        public int unitsHired;
+        public int unitsLost;
+        public int structuresBuilt;
+        public int structuresLost;
+
         public Faction(int team, bool isPlayer)
         {
             this.team = team;

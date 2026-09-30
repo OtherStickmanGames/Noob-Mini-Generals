@@ -121,16 +121,46 @@ namespace Generals
             return m;
         }
 
+        // Турель целиком (призрак при установке): основание и башня, повёрнутая стволом в +z
         static Model Turret(int team)
         {
-            byte color = TeamColor(team);
             var m = new Model(4, 7, 4);
-            m.Box(0, 0, 0, 4, 3, 4, Stone);
-            m.Box(0, 3, 0, 4, 1, 4, color);
-            m.Box(1, 4, 1, 2, 2, 2, Metal);            // башня
-            m.Box(1, 5, 3, 1, 1, 1, Metal);            // ствол (+z)
-            m.Box(2, 6, 1, 1, 1, 1, color);
+            TurretBaseBoxes(m, team);
+            TurretHeadBoxes(m, team, 1, TurretBaseHeight, 0);
             return m;
+        }
+
+        /// <summary>Высота основания турели в вокселях модели: на нём стоит поворотная башня</summary>
+        public const int TurretBaseHeight = 4;
+        /// <summary>Ось поворота башни в вокселях модели башни (центр её корпуса 3×3)</summary>
+        public static readonly Vector3 TurretHeadPivot = new(1.5f, 0f, 1.5f);
+
+        public static Mesh TurretBase(int team) => Get($"TurretBase_{team}", () =>
+        {
+            var m = new Model(4, TurretBaseHeight, 4);
+            TurretBaseBoxes(m, team);
+            return m;
+        });
+
+        /// <summary>Поворотная башня: корпус 3×3 и ствол в +z</summary>
+        public static Mesh TurretHead(int team) => Get($"TurretHead_{team}", () =>
+        {
+            var m = new Model(3, 3, 6);
+            TurretHeadBoxes(m, team, 0, 0, 0);
+            return m;
+        });
+
+        static void TurretBaseBoxes(Model m, int team)
+        {
+            m.Box(0, 0, 0, 4, 3, 4, Stone);
+            m.Box(0, 3, 0, 4, 1, 4, TeamColor(team));
+        }
+
+        static void TurretHeadBoxes(Model m, int team, int x, int y, int z)
+        {
+            m.Box(x, y, z, 3, 2, 3, Metal);                    // корпус
+            m.Box(x, y + 2, z, 3, 1, 3, TeamColorDark(team));  // крыша
+            m.Box(x + 1, y + 1, z + 3, 1, 1, 3, Metal);        // ствол
         }
 
         static Model BuilderModel(int team)

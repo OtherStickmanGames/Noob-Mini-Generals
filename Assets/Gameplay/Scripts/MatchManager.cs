@@ -1,13 +1,15 @@
 using System.Collections.Generic;
 using Unity.Mathematics;
 using UnityEngine;
+using Random = UnityEngine.Random;
 using UnityEngine.AI;
 
 namespace Generals
 {
     /// <summary>
     /// Бой: две стороны, стартовые здания (главное и добытчик рядом с ним), строители, точки захвата,
-    /// заказ построек и найм строителей.
+    /// заказ построек и найм строителей. Разрушение зданий и исход боя: чьё главное здание
+    /// разрушено, тот проиграл.
     /// </summary>
     public class MatchManager : MonoBehaviour
     {
@@ -21,6 +23,16 @@ namespace Generals
         public Faction Enemy { get; private set; }
         public BuildGrid Grid { get; private set; }
         public IReadOnlyList<CapturePoint> CapturePoints => capturePoints;
+        public Projectiles Projectiles { get; private set; }
+        public Effects Effects { get; private set; }
+
+        /// <summary>Бой окончен: чьё-то главное здание разрушено</summary>
+        public bool IsOver => Winner != null;
+        public Faction Winner { get; private set; }
+        /// <summary>Где стояло разрушенное главное здание — туда едет камера в конце боя</summary>
+        public Vector3 EndPoint { get; private set; }
+        /// <summary>Секунды боя (после конца не растут)</summary>
+        public float MatchTime { get; private set; }
 
         /// <summary>Материал зданий: копия материала арены, при установке здания становится полупрозрачным</summary>
         public Material StructureMaterial
@@ -44,6 +56,9 @@ namespace Generals
         void Awake()
         {
             Instance = this;
+            Effects = gameObject.AddComponent<Effects>();
+            Projectiles = gameObject.AddComponent<Projectiles>();
+            Projectiles.Init(arena, Effects);
             arena.Generated += Arena_Generated;
         }
 
@@ -61,11 +76,15 @@ namespace Generals
             spawned.Clear();
             capturePoints.Clear();
             CapturePoint.Capturers.Clear();
+            Projectiles.Clear();
+            Effects.Clear();
 
             Player = new Faction(0, true);
             Enemy = new Faction(1, false);
             Grid = new BuildGrid(arena);
             buildersSpawned = false;
+            Winner = null;
+            MatchTime = 0f;
 
             var layout = arena.Layout;
             foreach (var r in layout.resources)
@@ -98,6 +117,9 @@ namespace Generals
             if (Player == null)
                 return;
 
+            if (!IsOver)
+                MatchTime += Time.deltaTime;
+
             // Строители появляются, когда готов навмеш
             if (!buildersSpawned && navMesh.HasNavMesh && !navMesh.IsBusy)
             {
@@ -118,6 +140,11 @@ namespace Generals
         /// <summary>Заказ постройки: проверка места и цены, оплата, закладка стройки</summary>
         public bool TryOrderConstruction(Faction faction, StructureDef def, int2 min, out string reason)
         {
+            if (IsOver)
+            {
+                reason = "Бой окончен";
+                return false;
+            }
             if (!Grid.CanPlace(faction, def, min, out reason, out var capturePoint))
                 return false;
 
@@ -151,6 +178,44 @@ namespace Generals
             if (capturePoint != null)
                 capturePoint.Mine = structure;
             return structure;
+        }
+
+        /// <summary>
+        /// Здание разрушено (вызывает само здание перед уничтожением): освободить клетки, вернуть
+        /// деньги за очередь казарм; главное здание — конец боя
+        /// </summary>
+        public void StructureDestroyed(Structure structure)
+        {
+            var faction = structure.Faction;
+            faction.structures.Remove(structure);
+            faction.structuresLost++;
+            Grid.SetOccupied(structure.MinCell, structure.Def.footprint, false);
+
+            if (structure.CapturePoint != null && structure.CapturePoint.Mine == structure)
+                structure.CapturePoint.Mine = null;
+            if (structure.Barracks != null)
+                structure.Barracks.OnDestroyed();
+            if (structure.AssignedBuilder != null)
+                structure.AssignedBuilder = null;
+
+            if (faction.headquarters == structure)
+            {
+                faction.headquarters = null;
+                if (!IsOver)
+                {
+                    Winner = GetFaction(1 - faction.team);
+                    EndPoint = structure.transform.position;
+                    Debug.Log($"[Match] Главное здание стороны {faction.team} разрушено, победила сторона {Winner.team}, " +
+                              $"бой длился {MatchTime:0} с");
+                }
+            }
+        }
+
+        /// <summary>Новый бой на новой карте (генерация идёт на главном потоке — несколько секунд)</summary>
+        public void NewMatch()
+        {
+            arena.Seed = Random.Range(1, int.MaxValue);
+            arena.Generate();
         }
 
         float GateRotation(int team)
@@ -206,6 +271,11 @@ namespace Generals
 
         public bool TryHireBuilder(Faction faction, out string reason)
         {
+            if (IsOver)
+            {
+                reason = "Бой окончен";
+                return false;
+            }
             if (!faction.CanAfford(StructureCatalog.BuilderCost, 0))
             {
                 reason = "Не хватает ресурсов";
@@ -275,7 +345,10 @@ namespace Generals
             unit.Init(faction, barracks, behavior, arena.Material);
             faction.units.Add(unit);
             if (barracks != null)
+            {
                 barracks.Units.Add(unit);
+                faction.unitsHired++;
+            }
             return unit;
         }
 
@@ -315,8 +388,8 @@ namespace Generals
 
         // ---------- Отладка ----------
 
-        /// <summary>Отряд противника в атаке у его ворот (пока нет ИИ противника — шаг 6)</summary>
-        public void DebugSpawnEnemySquad(int count)
+        /// <summary>Отряд противника у его ворот (пока нет ИИ противника — шаг 6)</summary>
+        public void DebugSpawnEnemySquad(int count, BarracksBehavior behavior)
         {
             var gate = GateOf(Enemy);
             var center = arena.BaseTwo;
@@ -325,7 +398,7 @@ namespace Generals
             outward.Normalize();
             var side = new Vector3(outward.z, 0f, -outward.x);
             for (int i = 0; i < count; i++)
-                SpawnInfantryAt(Enemy, null, BarracksBehavior.Attack, gate + outward * 2f + side * ((i - (count - 1) * 0.5f) * 1.2f));
+                SpawnInfantryAt(Enemy, null, behavior, gate + outward * 2f + side * ((i - (count - 1) * 0.5f) * 1.2f));
         }
 
         /// <summary>Отдать игроку ближайшую к точке точку захвата (пока нет боевых юнитов)</summary>

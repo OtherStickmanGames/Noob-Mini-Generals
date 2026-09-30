@@ -26,6 +26,11 @@ namespace Generals
 
         public bool TryHire(out string reason)
         {
+            if (MatchManager.Instance.IsOver)
+            {
+                reason = "Бой окончен";
+                return false;
+            }
             if (!Structure.IsBuilt)
             {
                 reason = "Казармы ещё строятся";
@@ -79,6 +84,20 @@ namespace Generals
 
             Progress = 0f;
             Queued--;
+        }
+
+        /// <summary>
+        /// Казармы разрушены: деньги за очередь найма возвращаются, бойцы остаются
+        /// с последним поведением казарм
+        /// </summary>
+        public void OnDestroyed()
+        {
+            Faction.baseResource += Queued * UnitCatalog.InfantryCost;
+            Queued = 0;
+            foreach (var unit in Units)
+                if (unit != null)
+                    unit.DetachFromBarracks(Behavior);
+            Units.Clear();
         }
     }
 }

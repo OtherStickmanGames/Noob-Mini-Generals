@@ -87,6 +87,9 @@ public static class VoxelBlocks
     public static byte TeamColor(int team) => team == 0 ? TeamOne : TeamTwo;
     public static byte TeamColorDark(int team) => team == 0 ? TeamOneDark : TeamTwoDark;
 
+    /// <summary>Слот палитры грани блока (FaceTop / FaceSide / FaceBottom)</summary>
+    public static byte FaceSlot(byte block, int face) => block < Count ? faces[block, face] : (byte)0;
+
     /// <summary>Вода и бедрок взрывом не выбиваются.</summary>
     public static bool IsIndestructible(byte block) => block == Bedrock || block == Water;
 

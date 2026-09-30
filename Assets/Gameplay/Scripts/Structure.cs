@@ -1,14 +1,16 @@
 using Unity.Mathematics;
 using UnityEngine;
+using Random = UnityEngine.Random;
 using UnityEngine.AI;
 
 namespace Generals
 {
     /// <summary>
     /// Здание: занимает прямоугольник клеток земли, строится строителем (поднимается из земли),
-    /// после постройки приносит доход. Вырезает себя из навмеша.
+    /// после постройки приносит доход. Вырезает себя из навмеша. Получает урон; при нуле прочности
+    /// рушится (MatchManager.StructureDestroyed освобождает клетки, главное здание решает исход боя).
     /// </summary>
-    public class Structure : MonoBehaviour
+    public class Structure : MonoBehaviour, IDamageable
     {
         public StructureDef Def { get; private set; }
         public Faction Faction { get; private set; }
@@ -16,11 +18,17 @@ namespace Generals
         public bool IsBuilt { get; private set; }
         public float Progress { get; private set; }
         public float Health { get; private set; }
+        public float MaxHealth => Def.health;
+        public bool IsAlive => Health > 0f;
+        public float LastDamageTime { get; private set; } = float.NegativeInfinity;
+        public Vector3 Velocity => Vector3.zero;
         /// <summary>Для шахты на точке захвата</summary>
         public CapturePoint CapturePoint { get; private set; }
         public BuilderUnit AssignedBuilder { get; set; }
         /// <summary>Очередь найма и поведение бойцов — только у казарм</summary>
         public Barracks Barracks { get; private set; }
+        /// <summary>Поворотная башня — только у турели</summary>
+        public Turret Turret { get; private set; }
 
         /// <summary>Высота модели здания, м</summary>
         public float Height => modelHeight;
@@ -29,6 +37,7 @@ namespace Generals
         public Vector2 HalfExtents { get; private set; }
 
         Transform holder;
+        BoxCollider box;
         float modelHeight;
 
         public void Init(StructureDef def, Faction faction, int2 minCell, Vector3 center, float cellSize,
@@ -44,9 +53,10 @@ namespace Generals
             name = $"{def.name} {faction.team}";
             transform.position = center;
 
-            var mesh = VoxelModels.Structure(def.type, faction.team);
+            // Высота — по модели целиком; у турели на основании потом встаёт поворотная башня
+            modelHeight = VoxelModels.Size(VoxelModels.Structure(def.type, faction.team)).y * VoxelModels.VoxelSize;
+            var mesh = def.type == StructureType.Turret ? VoxelModels.TurretBase(faction.team) : VoxelModels.Structure(def.type, faction.team);
             var size = VoxelModels.Size(mesh);
-            modelHeight = size.y * VoxelModels.VoxelSize;
 
             // Держатель поворачивается, модель внутри сдвинута так, чтобы центр был в нуле
             holder = new GameObject("Holder").transform;
@@ -60,8 +70,8 @@ namespace Generals
             model.AddComponent<MeshFilter>().sharedMesh = mesh;
             model.AddComponent<MeshRenderer>().sharedMaterial = material;
 
-            // Коллайдер для тапа по зданию
-            var box = gameObject.AddComponent<BoxCollider>();
+            // Коллайдер для тапа по зданию и попаданий
+            box = gameObject.AddComponent<BoxCollider>();
             box.center = new Vector3(0f, modelHeight * 0.5f, 0f);
             box.size = new Vector3(HalfExtents.x * 2f, modelHeight, HalfExtents.y * 2f);
 
@@ -78,6 +88,11 @@ namespace Generals
                 Barracks = gameObject.AddComponent<Barracks>();
                 Barracks.Init(this);
             }
+            else if (def.type == StructureType.Turret)
+            {
+                Turret = gameObject.AddComponent<Turret>();
+                Turret.Init(this, holder, material);
+            }
 
             if (built)
                 Complete();
@@ -88,14 +103,19 @@ namespace Generals
         /// <summary>Строитель работает над зданием seconds секунд</summary>
         public void AddWork(float seconds)
         {
-            if (IsBuilt)
+            if (IsBuilt || !IsAlive)
                 return;
 
             Progress = math.saturate(Progress + seconds / Def.buildTime);
             if (Progress >= 1f)
+            {
                 Complete();
+                Faction.structuresBuilt++;
+            }
             else
+            {
                 UpdateModel();
+            }
         }
 
         void Complete()
@@ -105,11 +125,16 @@ namespace Generals
             UpdateModel();
         }
 
-        // Недостроенное здание утоплено в землю и поднимается по мере работы
+        // Недостроенное здание утоплено в землю и поднимается по мере работы;
+        // коллайдер — только над землёй, чтобы пули не попадали в пустоту над стройкой
         void UpdateModel()
         {
             float sink = modelHeight * (1f - math.lerp(0.15f, 1f, Progress));
             holder.localPosition = new Vector3(0f, -sink, 0f);
+
+            float visible = modelHeight - sink;
+            box.center = new Vector3(0f, visible * 0.5f, 0f);
+            box.size = new Vector3(HalfExtents.x * 2f, visible, HalfExtents.y * 2f);
         }
 
         void Update()
@@ -134,6 +159,45 @@ namespace Generals
                     break;
             }
         }
+
+        // ---------- Бой ----------
+
+        public void TakeDamage(float amount)
+        {
+            if (!IsAlive)
+                return;
+
+            Health -= amount;
+            LastDamageTime = Time.time;
+            if (Health <= 0f)
+            {
+                Health = 0f;
+                MatchManager.Instance.StructureDestroyed(this);
+                MatchManager.Instance.Effects.StructureDestroyed(transform.position, HalfExtents, box.size.y, Faction.team);
+                Destroy(gameObject);
+            }
+        }
+
+        /// <summary>Бойцы целятся в ближайший к ним край здания на уровне груди</summary>
+        public Vector3 AimPoint(Vector3 from)
+        {
+            var edge = ClosestEdgePoint(from, -0.15f);
+            float visible = box.size.y;
+            edge.y = transform.position.y + Mathf.Min(visible * 0.5f, 1.2f);
+            return edge;
+        }
+
+        /// <summary>Промах — в землю у стены здания со стороны стрелка, чуть вбок</summary>
+        public Vector3 MissPoint(Vector3 from)
+        {
+            var edge = ClosestEdgePoint(from, Random.Range(0.3f, 1.2f));
+            var side = Vector3.Cross(Vector3.up, (edge - from).normalized);
+            edge += side * Random.Range(-1.2f, 1.2f);
+            edge.y = transform.position.y - 0.1f;
+            return edge;
+        }
+
+        // ---------- Геометрия ----------
 
         /// <summary>Ближайшая к точке позиция на краю здания с отступом</summary>
         public Vector3 ClosestEdgePoint(Vector3 from, float margin)

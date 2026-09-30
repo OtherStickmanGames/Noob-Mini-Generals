@@ -20,6 +20,9 @@ namespace Generals.EditorTools
         static readonly Color CancelColor = new(0.62f, 0.2f, 0.18f, 1f);
         static readonly Color ProgressBackColor = new(0f, 0f, 0f, 0.45f);
         static readonly Color DefendColor = new(0.22f, 0.42f, 0.72f, 1f);
+        static readonly Color HealthBackColor = new(0f, 0f, 0f, 0.65f);
+        static readonly Color HealthLagColor = new(1f, 0.95f, 0.85f, 0.9f);
+        static readonly Color DimColor = new(0f, 0f, 0f, 0.55f);
 
 
         [MenuItem("Tools/Voxel Arena/Rebuild HUD Prefab")]
@@ -117,6 +120,7 @@ namespace Generals.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
 
             AddBarracksControls(root);
+            AddCombatControls(root);
 
             Directory.CreateDirectory(Path.GetDirectoryName(PrefabPath));
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
@@ -126,26 +130,108 @@ namespace Generals.EditorTools
 
         /// <summary>
         /// Дополняет уже существующий префаб HUD элементами, которых в нём ещё нет (панель казарм,
-        /// значок поведения), не трогая остальное — ручные правки сохраняются.
+        /// значок поведения, полоски прочности, итоги боя), не трогая остальное — ручные правки сохраняются.
         /// Вызывается сам после компиляции (HudPrefabUpgrader).
         /// </summary>
         public static void UpgradeIfNeeded()
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
-            if (prefab == null || prefab.GetComponent<GameHud>() is not { } hud || !NeedsBarracksControls(hud))
+            if (prefab == null || prefab.GetComponent<GameHud>() is not { } hud)
+                return;
+            bool barracks = NeedsBarracksControls(hud), combat = NeedsCombatControls(hud);
+            if (!barracks && !combat)
                 return;
 
             var root = PrefabUtility.LoadPrefabContents(PrefabPath);
             try
             {
-                AddBarracksControls(root);
+                if (barracks)
+                    AddBarracksControls(root);
+                if (combat)
+                    AddCombatControls(root);
                 PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
-                Debug.Log("[HUD] В префаб HUD добавлены панель казарм и значки поведения");
+                if (barracks)
+                    Debug.Log("[HUD] В префаб HUD добавлены панель казарм и значки поведения");
+                if (combat)
+                    Debug.Log("[HUD] В префаб HUD добавлены полоски прочности и итоги боя");
             }
             finally
             {
                 PrefabUtility.UnloadPrefabContents(root);
             }
+        }
+
+        static bool NeedsCombatControls(GameHud hud)
+        {
+            var so = new SerializedObject(hud);
+            return so.FindProperty("healthBarTemplate").objectReferenceValue == null ||
+                   so.FindProperty("matchEndPanel").objectReferenceValue == null ||
+                   so.FindProperty("resultsButton").objectReferenceValue == null;
+        }
+
+        // Образец полоски прочности (фон, светлый след урона Lag, заполнение Fill), экран итогов боя
+        // и кнопка «Итоги боя» на месте «Строить»
+        static void AddCombatControls(GameObject root)
+        {
+            var hud = root.GetComponent<GameHud>();
+            var so = new SerializedObject(hud);
+            var t = root.transform;
+
+            if (so.FindProperty("healthBarTemplate").objectReferenceValue == null)
+            {
+                var bar = MakePanel(t, "Health Bar Template", Vector2.zero, Vector2.zero, new Vector2(0.5f, 0f),
+                                    Vector2.zero, new Vector2(80f, 14f), HealthBackColor);
+                bar.GetComponent<Image>().raycastTarget = false;
+                foreach (var (name, color) in new[] { ("Lag", HealthLagColor), ("Fill", AccentColor) })
+                {
+                    var part = MakePanel(bar, name, Vector2.zero, Vector2.one, new Vector2(0f, 0.5f), Vector2.zero, Vector2.zero, color);
+                    part.offsetMin = new Vector2(2f, 2f);
+                    part.offsetMax = new Vector2(-2f, -2f);
+                    part.GetComponent<Image>().raycastTarget = false;
+                }
+                // Полоски — под остальным интерфейсом
+                bar.SetAsFirstSibling();
+                so.FindProperty("healthBarTemplate").objectReferenceValue = bar;
+            }
+
+            if (so.FindProperty("matchEndPanel").objectReferenceValue == null)
+            {
+                // Затемнение на весь экран — заодно не пускает касания в мир под итогами
+                var dim = MakePanel(t, "Match End", Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero, DimColor);
+                var card = MakePanel(dim, "Card", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                                     Vector2.zero, new Vector2(900f, 640f), PanelColor);
+
+                var titleArea = MakePanel(card, "Title", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
+                                          new Vector2(0f, -20f), new Vector2(-40f, 140f), Color.clear);
+                var title = MakeLabel(titleArea, "Победа!", 96, TextAlignmentOptions.Center);
+                title.fontStyle = FontStyles.Bold;
+
+                var statsArea = MakePanel(card, "Stats", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
+                                          new Vector2(0f, -170f), new Vector2(-80f, 300f), Color.clear);
+                var stats = MakeLabel(statsArea, "Время боя: 0:00", 34, TextAlignmentOptions.Top);
+
+                var newMatch = MakeButton(card, "New Match", "Новый бой", new Vector2(0.5f, 0f), new Vector2(-200f, 40f),
+                                          new Vector2(380f, 110f), AccentColor);
+                var lookAround = MakeButton(card, "Look Around", "Осмотреться", new Vector2(0.5f, 0f), new Vector2(200f, 40f),
+                                            new Vector2(380f, 110f), ButtonColor);
+
+                // Итоги — поверх всего
+                dim.SetAsLastSibling();
+                so.FindProperty("matchEndPanel").objectReferenceValue = dim.gameObject;
+                so.FindProperty("matchEndTitle").objectReferenceValue = title;
+                so.FindProperty("matchEndStats").objectReferenceValue = stats;
+                so.FindProperty("newMatchButton").objectReferenceValue = newMatch;
+                so.FindProperty("lookAroundButton").objectReferenceValue = lookAround;
+            }
+
+            if (so.FindProperty("resultsButton").objectReferenceValue == null)
+            {
+                var results = MakeButton(t, "Results Button", "Итоги боя", new Vector2(1f, 0f), new Vector2(-30f, 30f),
+                                         new Vector2(300f, 120f), AccentColor);
+                so.FindProperty("resultsButton").objectReferenceValue = results;
+            }
+
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         static bool NeedsBarracksControls(GameHud hud)

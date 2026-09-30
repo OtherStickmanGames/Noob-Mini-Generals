@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using Unity.Mathematics;
 using TMPro;
@@ -60,6 +61,30 @@ namespace Generals
         [SerializeField] Color attackColor = new(0.72f, 0.26f, 0.2f, 1f);
         [SerializeField] Color inactiveColor = new(0.22f, 0.25f, 0.30f, 1f);
 
+        [Header("Полоски прочности")]
+        [Tooltip("Образец полоски над бойцом или зданием: фон, дочерние Lag (след урона) и Fill (прочность)")]
+        [SerializeField] RectTransform healthBarTemplate;
+        [SerializeField] Color ownHealthColor = new(0.36f, 0.86f, 0.38f, 1f);
+        [SerializeField] Color enemyHealthColor = new(0.93f, 0.3f, 0.25f, 1f);
+        [Tooltip("Сколько секунд после урона полоска видна (у выбранного здания — всегда, пока оно повреждено)")]
+        [SerializeField] float healthBarShowSeconds = 5f;
+        [Tooltip("С какой скоростью догоняет прочность светлый след урона, доля в секунду")]
+        [SerializeField] float healthLagSpeed = 0.6f;
+
+        [Header("Конец боя")]
+        [SerializeField] GameObject matchEndPanel;
+        [SerializeField] TMP_Text matchEndTitle;
+        [SerializeField] TMP_Text matchEndStats;
+        [SerializeField] Button newMatchButton;
+        [Tooltip("Спрятать итоги и посмотреть на поле")]
+        [SerializeField] Button lookAroundButton;
+        [Tooltip("Кнопка «Итоги боя» вместо «Строить», пока итоги спрятаны")]
+        [SerializeField] Button resultsButton;
+        [SerializeField] Color victoryColor = new(1f, 0.84f, 0.35f, 1f);
+        [SerializeField] Color defeatColor = new(0.93f, 0.36f, 0.3f, 1f);
+        [Tooltip("Через сколько секунд после разрушения главного здания показать итоги")]
+        [SerializeField] float resultsDelay = 2.2f;
+
         public RtsCamera RtsCamera
         {
             get => rtsCamera;
@@ -84,6 +109,24 @@ namespace Generals
         // Значки поведения над своими казармами
         readonly Dictionary<Barracks, RectTransform> badges = new();
         readonly List<Barracks> badgeCleanup = new();
+
+        // Полоски прочности: активные по цели и запас свободных
+        class HealthBar
+        {
+            public RectTransform rect;
+            public RectTransform fill;
+            public RectTransform lag;
+            public Image fillImage;
+            public float lagValue;
+            public bool used;
+        }
+        readonly Dictionary<IDamageable, HealthBar> healthBars = new();
+        readonly Stack<HealthBar> freeHealthBars = new();
+        readonly List<IDamageable> healthBarCleanup = new();
+
+        // Конец боя: камера едет к разрушенному главному зданию, потом итоги
+        bool matchEndHandled;
+        float resultsTimer;
 
         // Высота панели выбранного здания со строкой поведения и без неё
         float selectionHeightWithBehavior;
@@ -111,6 +154,17 @@ namespace Generals
             attackButton.onClick.AddListener(() => SetSelectedBehavior(BarracksBehavior.Attack));
             selectionHeightWithBehavior = ((RectTransform)selectionPanel.transform).sizeDelta.y;
             barracksBadgeTemplate.gameObject.SetActive(false);
+            healthBarTemplate.gameObject.SetActive(false);
+
+            newMatchButton.onClick.AddListener(() => StartCoroutine(NewMatchRoutine()));
+            lookAroundButton.onClick.AddListener(() =>
+            {
+                matchEndPanel.SetActive(false);
+                resultsButton.gameObject.SetActive(true);
+            });
+            resultsButton.onClick.AddListener(ShowResults);
+            matchEndPanel.SetActive(false);
+            resultsButton.gameObject.SetActive(false);
 
             buildButtonTemplate.gameObject.SetActive(false);
             foreach (var def in StructureCatalog.All)
@@ -151,7 +205,9 @@ namespace Generals
                 return;
 
             resourcesText.text = $"Базовый ресурс: {Player.BaseResource}     Ценный: {Player.Valuable}     " +
-                                 $"Строители: {Player.builders.Count}     Точки: {OwnedPoints()}";
+                                 $"Строители: {Player.builders.Count}     Бойцы: {Player.units.Count}     Точки: {OwnedPoints()}";
+
+            UpdateMatchEnd();
 
             foreach (var (def, button) in buildButtons)
                 button.interactable = Player.CanAfford(def.costBase, def.costValuable);
@@ -176,12 +232,176 @@ namespace Generals
                     gridOverlay.MarkDirty();
             }
 
-            // Отладка: отряд противника в атаке у его ворот (пока нет ИИ противника)
+            // Отладка: отряды противника у его ворот (пока нет ИИ противника)
             if (Input.GetKeyDown(KeyCode.V))
             {
-                Match.DebugSpawnEnemySquad(3);
+                Match.DebugSpawnEnemySquad(3, BarracksBehavior.Attack);
                 Toast("Отряд противника идёт в атаку (отладка)");
             }
+            if (Input.GetKeyDown(KeyCode.B))
+            {
+                Match.DebugSpawnEnemySquad(3, BarracksBehavior.Defend);
+                Toast("Отряд противника встал в оборону (отладка)");
+            }
+        }
+
+        // ---------- Конец боя ----------
+
+        void UpdateMatchEnd()
+        {
+            // Новая карта сгенерирована — интерфейс снова в режиме боя
+            if (matchEndHandled && !Match.IsOver)
+            {
+                matchEndHandled = false;
+                matchEndPanel.SetActive(false);
+                resultsButton.gameObject.SetActive(false);
+                buildToggle.gameObject.SetActive(true);
+                return;
+            }
+
+            if (Match.IsOver && !matchEndHandled)
+            {
+                matchEndHandled = true;
+                CancelPlacing();
+                Select(null);
+                buildMenu.SetActive(false);
+                buildToggle.gameObject.SetActive(false);
+                rtsCamera.GlideTo(Match.EndPoint);
+                resultsTimer = resultsDelay;
+            }
+
+            if (matchEndHandled && resultsTimer > 0f)
+            {
+                resultsTimer -= Time.deltaTime;
+                if (resultsTimer <= 0f)
+                    ShowResults();
+            }
+        }
+
+        void ShowResults()
+        {
+            var own = Player;
+            var enemy = Match.Enemy;
+            bool victory = Match.Winner == own;
+
+            matchEndTitle.text = victory ? "Победа!" : "Поражение";
+            matchEndTitle.color = victory ? victoryColor : defeatColor;
+
+            int time = Mathf.FloorToInt(Match.MatchTime);
+            matchEndStats.text =
+                (victory ? "Главное здание противника разрушено" : "Ваше главное здание разрушено") + "\n\n" +
+                $"Время боя: {time / 60}:{time % 60:00}\n" +
+                $"Бойцов нанято: {own.unitsHired}, потеряно: {own.unitsLost}\n" +
+                $"Уничтожено бойцов противника: {enemy.unitsLost}\n" +
+                $"Зданий построено: {own.structuresBuilt}, потеряно: {own.structuresLost}\n" +
+                $"Уничтожено зданий противника: {enemy.structuresLost}";
+
+            newMatchButton.interactable = true;
+            lookAroundButton.interactable = true;
+            matchEndPanel.SetActive(true);
+            resultsButton.gameObject.SetActive(false);
+        }
+
+        // Генерация карты на главном потоке замораживает кадр: сначала показываем, что идёт новая карта
+        IEnumerator NewMatchRoutine()
+        {
+            newMatchButton.interactable = false;
+            lookAroundButton.interactable = false;
+            matchEndTitle.text = "Новая карта…";
+            matchEndTitle.color = Color.white;
+            matchEndStats.text = "Генерация займёт несколько секунд";
+            yield return null;
+            yield return null;
+            Match.NewMatch();
+        }
+
+        // ---------- Полоски прочности ----------
+
+        // Над повреждёнными бойцами и зданиями — полоска прочности (зелёная своя, красная чужая)
+        // со светлым следом только что снятого урона; видна несколько секунд после урона
+        void UpdateHealthBars()
+        {
+            foreach (var bar in healthBars.Values)
+                bar.used = false;
+
+            if (placingDef == null)
+            {
+                foreach (var faction in new[] { Match.Player, Match.Enemy })
+                {
+                    foreach (var s in faction.structures)
+                        UpdateHealthBar(s);
+                    foreach (var u in faction.units)
+                        UpdateHealthBar(u);
+                }
+            }
+
+            healthBarCleanup.Clear();
+            foreach (var (target, bar) in healthBars)
+                if (!bar.used)
+                    healthBarCleanup.Add(target);
+            foreach (var target in healthBarCleanup)
+            {
+                var bar = healthBars[target];
+                bar.rect.gameObject.SetActive(false);
+                freeHealthBars.Push(bar);
+                healthBars.Remove(target);
+            }
+        }
+
+        void UpdateHealthBar(IDamageable target)
+        {
+            if (!Combat.IsAlive(target) || target.Health >= target.MaxHealth)
+                return;
+            bool recent = Time.time - target.LastDamageTime < healthBarShowSeconds;
+            if (!recent && !ReferenceEquals(target, selected))
+                return;
+
+            var structure = target as Structure;
+            var top = structure != null
+                ? structure.transform.position + Vector3.up * (structure.Height + 0.5f)
+                : target.transform.position + Vector3.up * 2.4f;
+            var screen = rtsCamera.Camera.WorldToScreenPoint(top);
+            if (screen.z <= 0f)
+                return;
+
+            bool isNew = !healthBars.TryGetValue(target, out var bar);
+            if (isNew)
+            {
+                bar = freeHealthBars.Count > 0 ? freeHealthBars.Pop() : CreateHealthBar();
+                healthBars.Add(target, bar);
+                bar.rect.gameObject.SetActive(true);
+                bar.rect.sizeDelta = structure != null
+                    ? new Vector2(Mathf.Clamp(structure.HalfExtents.x * 2f * 26f, 80f, 180f), 14f)
+                    : new Vector2(50f, 9f);
+                bar.fillImage.color = target.Faction == Player ? ownHealthColor : enemyHealthColor;
+            }
+
+            bar.used = true;
+            bar.rect.position = screen;
+
+            float value = Mathf.Clamp01(target.Health / target.MaxHealth);
+            // Новая полоска — след стартует с полной, чтобы было видно первый урон
+            if (isNew)
+                bar.lagValue = 1f;
+            bar.lagValue = value > bar.lagValue ? value : Mathf.Max(value, bar.lagValue - healthLagSpeed * Time.deltaTime);
+            bar.fill.anchorMax = new Vector2(value, 1f);
+            bar.lag.anchorMax = new Vector2(bar.lagValue, 1f);
+        }
+
+        HealthBar CreateHealthBar()
+        {
+            var rect = Instantiate(healthBarTemplate, healthBarTemplate.parent);
+            rect.name = "Health Bar";
+            // Сразу за образцом: под панелями и кнопками интерфейса
+            rect.SetSiblingIndex(healthBarTemplate.GetSiblingIndex() + 1);
+            var fill = (RectTransform)rect.Find("Fill");
+            return new HealthBar
+            {
+                rect = rect,
+                fill = fill,
+                lag = (RectTransform)rect.Find("Lag"),
+                fillImage = fill.GetComponent<Image>(),
+            };
         }
 
         int OwnedPoints()
@@ -465,7 +685,10 @@ namespace Generals
         void LateUpdate()
         {
             if (Player != null)
+            {
                 UpdateBadges();
+                UpdateHealthBars();
+            }
 
             if (placingDef == null || ghost == null || !ghost.activeSelf)
                 return;
@@ -576,7 +799,10 @@ namespace Generals
             }
 
             bool own = selected.Faction == Player;
-            selectionTitle.text = own ? selected.Def.name : $"{selected.Def.name} (противник)";
+            // Прочность — справа от названия, цветом стороны
+            var hpColor = ColorUtility.ToHtmlStringRGB(own ? ownHealthColor : enemyHealthColor);
+            selectionTitle.text = (own ? selected.Def.name : $"{selected.Def.name} (противник)") +
+                                  $"   <size=75%><color=#{hpColor}>{Mathf.CeilToInt(selected.Health)} / {selected.MaxHealth:0}</color></size>";
 
             bool isHq = own && selected.Def.type == StructureType.Headquarters;
             var barracks = own ? selected.Barracks : null;
@@ -623,13 +849,23 @@ namespace Generals
             }
             else if (selected.Def.type == StructureType.Mine)
             {
-                selectionInfo.text = selected.CapturePoint.Owner == Player.team
+                selectionInfo.text = selected.CapturePoint.Owner == selected.Faction.team
                     ? "Добывает ценный ресурс"
                     : "Точка потеряна — добыча стоит";
             }
+            else if (selected.Turret != null)
+            {
+                selectionInfo.text = selected.Turret.Target != null
+                    ? "Ведёт огонь"
+                    : $"Стреляет по врагам в радиусе {WeaponCatalog.Cannon.range:0} м";
+            }
+            else if (selected.Def.type == StructureType.Headquarters)
+            {
+                selectionInfo.text = "Разрушить — значит победить";
+            }
             else
             {
-                selectionInfo.text = $"Прочность: {selected.Health:0}";
+                selectionInfo.text = "Постройка противника";
             }
 
             if (barracks != null)
