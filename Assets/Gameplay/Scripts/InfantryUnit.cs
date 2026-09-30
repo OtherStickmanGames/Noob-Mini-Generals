@@ -48,6 +48,7 @@ namespace Generals
         IAreaTarget attackTarget;
         bool hasSlot;
         Vector3 slot;
+        int blockedChecks;
 
         public void Init(Faction faction, Barracks barracks, BarracksBehavior behavior, Material material)
         {
@@ -125,7 +126,9 @@ namespace Generals
                 return;
 
             // Стоит на позиции — поворачивается к цели и стреляет
-            var look = Target.AimPoint(transform.position) - transform.position;
+            // К постройке — лицом к её ближнему краю (точка прицела у неё каждый выстрел своя)
+            var look = (Target is IAreaTarget area ? area.ClosestEdgePoint(transform.position, 0f) : Target.AimPoint(transform.position))
+                       - transform.position;
             look.y = 0f;
             if (look.sqrMagnitude < 0.01f)
                 return;
@@ -199,14 +202,21 @@ namespace Generals
 
             if ((Flat(slot) - Flat(transform.position)).sqrMagnitude < 0.7f * 0.7f)
             {
+                // Точка прицела каждый раз случайная (целый воксель цели) и может оказаться закрыта —
+                // с позиции уходим, только если цель не видна несколько проверок подряд
                 if (Combat.HasLineOfFire(Muzzle, target, Faction))
+                    blockedChecks = 0;
+                else
+                    blockedChecks++;
+
+                if (blockedChecks < 4)
                 {
                     Firing = true;
                     if (agent.isOnNavMesh)
                         agent.isStopped = true;
                     return;
                 }
-                // С позиции цель больше не видно (что-то изменилось) — искать другую позицию
+                blockedChecks = 0;
                 match.ReleaseAttackSlot(this, target);
                 hasSlot = false;
             }

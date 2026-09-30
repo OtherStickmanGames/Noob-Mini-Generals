@@ -179,6 +179,35 @@ namespace Generals
             }
         }
 
+        /// <summary>
+        /// Куда целиться: случайный целый воксель на ближней к стрелку стороне, на любой высоте
+        /// (из нескольких случайных — ближайший по горизонтали). Здание крошится по всей стене,
+        /// а не тоннелем на высоте груди.
+        /// </summary>
+        public bool TryPickAimPoint(Vector3 from, out Vector3 world)
+        {
+            var voxels = model.Voxels;
+            world = default;
+            float best = float.MaxValue;
+            int found = 0;
+            for (int t = 0; t < 40 && found < 5; t++)
+            {
+                int i = Random.Range(0, voxels.Length);
+                if (voxels[i] == 0)
+                    continue;
+                found++;
+                var p = VoxelWorld(i);
+                var delta = p - from;
+                delta.y = 0f;
+                if (delta.sqrMagnitude < best)
+                {
+                    best = delta.sqrMagnitude;
+                    world = p;
+                }
+            }
+            return found > 0;
+        }
+
         /// <summary>Пересобрать меш, если за кадр что-то выбили (все попадания кадра — одной пересборкой)</summary>
         public void RebuildIfDirty()
         {

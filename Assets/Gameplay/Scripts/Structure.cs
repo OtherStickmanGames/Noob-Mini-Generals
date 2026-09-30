@@ -197,8 +197,12 @@ namespace Generals
             Destroy(gameObject);
         }
 
-        /// <summary>Бойцы целятся в ближайший к ним край здания на уровне груди</summary>
-        public Vector3 AimPoint(Vector3 from) => Combat.AreaAimPoint(this, from, box.size.y);
+        /// <summary>
+        /// Куда целиться: случайный целый воксель со стороны стрелка; у стройки (модель ещё
+        /// в земле) — ближний край на уровне груди
+        /// </summary>
+        public Vector3 AimPoint(Vector3 from) =>
+            IsBuilt && destructible.TryPickAimPoint(from, out var point) ? point : Combat.AreaAimPoint(this, from, box.size.y);
 
         /// <summary>Промах — в землю у стены здания со стороны стрелка, чуть вбок</summary>
         public Vector3 MissPoint(Vector3 from) => Combat.AreaMissPoint(this, from);

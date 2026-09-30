@@ -82,11 +82,9 @@ namespace Generals
             Health -= amount;
             LastDamageTime = Time.time;
             var effects = MatchManager.Instance.Effects;
-            if (Health > 0f)
-            {
-                Chip(point, direction, effects);
+            // Живой участок крошится; если от него ничего не осталось (выбили воронками и обвалом) — рухнул
+            if (Health > 0f && Chip(point, direction, effects) > 0)
                 return;
-            }
 
             Health = 0f;
             Collapse(effects);
@@ -94,14 +92,12 @@ namespace Generals
             Destroy(gameObject);
         }
 
-        // Выбить воксели участка, ближайшие к попаданию, — сколько положено по снятой прочности
-        void Chip(Vector3 point, Vector3 direction, Effects effects)
+        /// <summary>
+        /// Выбить воксели участка, ближайшие к попаданию, — сколько положено по снятой прочности;
+        /// потом обвалить то, что осталось без опоры. Возвращает, сколько вокселей участка осталось.
+        /// </summary>
+        int Chip(Vector3 point, Vector3 direction, Effects effects)
         {
-            int target = Mathf.FloorToInt(initialCount * MaxChippedShare * (1f - Health / MaxHealth));
-            int count = target - chipped;
-            if (count <= 0)
-                return;
-
             var local = arena.WorldToVoxel(point);
             candidates.Clear();
             for (int i = 0; i < voxels.Count; i++)
@@ -110,6 +106,11 @@ namespace Generals
                     continue;
                 candidates.Add((math.distancesq((float3)voxels[i] + 0.5f, local), i));
             }
+
+            int target = Mathf.FloorToInt(initialCount * MaxChippedShare * (1f - Health / MaxHealth));
+            int count = target - chipped;
+            if (count <= 0)
+                return candidates.Count;
             candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
 
             var back = direction.sqrMagnitude > 1e-6f ? -direction.normalized : Vector3.up;
@@ -124,6 +125,95 @@ namespace Generals
             }
             chipped += count;
             arena.ClearVoxels(toClear);
+            return candidates.Count - count - DropUnsupported(effects);
+        }
+
+        // Воксели участка, не связанные гранями стены с землёй, падают (свод над выбитой дырой
+        // держится, пока с одной из сторон есть опора — в том числе соседний участок)
+        int DropUnsupported(Effects effects)
+        {
+            // Область поиска — участок и клетка вокруг: опора через соседние участки тоже считается
+            int2 min = new(int.MaxValue), max = new(int.MinValue);
+            foreach (var cell in cells)
+            {
+                min = math.min(min, cell - 1);
+                max = math.max(max, cell + 1);
+            }
+
+            supported.Clear();
+            queue.Clear();
+            for (int z = min.y; z <= max.y; z++)
+            {
+                for (int x = min.x; x <= max.x; x++)
+                {
+                    // Нижний воксель стены в столбце стоит на земле — опора
+                    for (int y = 1; y < arena.Dims.y; y++)
+                    {
+                        var v = new int3(x, y, z);
+                        if (arena.GetBlock(v) != VoxelBlocks.Wall)
+                            continue;
+                        var below = arena.GetBlock(v - new int3(0, 1, 0));
+                        if (below != VoxelBlocks.Air && below != VoxelBlocks.Wall && below != VoxelBlocks.Water && supported.Add(v))
+                            queue.Enqueue(v);
+                    }
+                }
+            }
+
+            while (queue.Count > 0)
+            {
+                var v = queue.Dequeue();
+                foreach (var d in Neighbours)
+                {
+                    var n = v + d;
+                    if (n.x < min.x || n.x > max.x || n.z < min.y || n.z > max.y)
+                        continue;
+                    if (arena.GetBlock(n) == VoxelBlocks.Wall && supported.Add(n))
+                        queue.Enqueue(n);
+                }
+            }
+
+            toClear.Clear();
+            foreach (var v in voxels)
+                if (arena.GetBlock(v) == VoxelBlocks.Wall && !supported.Contains(v))
+                    toClear.Add(v);
+            for (int i = 0; i < toClear.Count && i < MaxDebrisPerHit * 3; i++)
+                effects.WallDebris(VoxelCenter(toClear[i]), Random.insideUnitSphere + Vector3.down);
+            arena.ClearVoxels(toClear);
+            return toClear.Count;
+        }
+
+        static readonly int3[] Neighbours =
+        {
+            new(1, 0, 0), new(-1, 0, 0), new(0, 1, 0), new(0, -1, 0), new(0, 0, 1), new(0, 0, -1),
+        };
+        readonly HashSet<int3> supported = new();
+        readonly Queue<int3> queue = new();
+
+        /// <summary>
+        /// Случайный целый воксель участка на ближней к стрелку стороне, на любой высоте: из
+        /// нескольких случайных — ближайший по горизонтали. Так стена крошится по всей поверхности,
+        /// а не одной дырой на высоте груди, сквозь которую потом летят пули.
+        /// </summary>
+        bool TryPickVoxel(Vector3 from, out int3 best)
+        {
+            best = default;
+            float bestDistance = float.MaxValue;
+            int found = 0;
+            for (int t = 0; t < 30 && found < 5 && voxels.Count > 0; t++)
+            {
+                var v = voxels[Random.Range(0, voxels.Count)];
+                if (arena.GetBlock(v) != VoxelBlocks.Wall)
+                    continue;
+                found++;
+                var delta = VoxelCenter(v) - from;
+                delta.y = 0f;
+                if (delta.sqrMagnitude < bestDistance)
+                {
+                    bestDistance = delta.sqrMagnitude;
+                    best = v;
+                }
+            }
+            return found > 0;
         }
 
         // Обрушение: все оставшиеся воксели участка выбиваются, куски разлетаются, поднимается пыль
@@ -151,7 +241,8 @@ namespace Generals
 
         // ---------- Цель ----------
 
-        public Vector3 AimPoint(Vector3 from) => Combat.AreaAimPoint(this, from, Height);
+        public Vector3 AimPoint(Vector3 from) =>
+            TryPickVoxel(from, out var voxel) ? VoxelCenter(voxel) : Combat.AreaAimPoint(this, from, Height);
 
         public Vector3 MissPoint(Vector3 from) => Combat.AreaMissPoint(this, from);
 

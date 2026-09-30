@@ -60,7 +60,8 @@ namespace Generals
                 return;
             }
 
-            var look = Target.AimPoint(head.position) - head.position;
+            var look = (Target is IAreaTarget area ? area.ClosestEdgePoint(head.position, 0f) : Target.AimPoint(head.position))
+                       - head.position;
             look.y = 0f;
             if (look.sqrMagnitude < 0.01f)
                 return;
