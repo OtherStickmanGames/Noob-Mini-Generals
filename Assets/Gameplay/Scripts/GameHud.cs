@@ -110,6 +110,7 @@ namespace Generals
             rtsCamera.ObjectDragEnded -= Ghost_Dragged;
             rtsCamera.TryBeginObjectDrag = null;
             BuildModeVisuals.SetActive(false);
+            SelectionOutline.Clear();
             if (ghostMaterial != null)
                 Destroy(ghostMaterial);
         }
@@ -310,7 +311,7 @@ namespace Generals
 
             ghost.SetActive(true);
             ghost.transform.position = Match.CellCenter(placingMin, placingDef.footprint);
-            ghostMaterial.SetColor(TintId, placingValid ? new Color(0.25f, 0.95f, 0.3f, 0.45f) : new Color(1f, 0.2f, 0.15f, 0.55f));
+            SelectionOutline.Color = placingValid ? OutlineValid : OutlineInvalid;
 
             bool affordable = Player.CanAfford(placingDef.costBase, placingDef.costValuable);
             confirmButton.interactable = placingValid && affordable;
@@ -362,6 +363,7 @@ namespace Generals
             if (gridOverlay != null)
                 gridOverlay.Hide();
             SetBuildFade(false);
+            SelectionOutline.Clear();
             if (ghost != null)
                 Destroy(ghost);
             ghost = null;
@@ -381,17 +383,21 @@ namespace Generals
             model.AddComponent<MeshFilter>().sharedMesh = mesh;
             ghostHeight = size.y * VoxelModels.VoxelSize;
 
-            // Свой материал: не прозрачный и подкрашивается зелёным или красным
+            // Свой материал: при установке не прозрачный, как стены и здания; модель в своих цветах,
+            // можно ли ставить — показывает контур (SelectionOutline)
             if (ghostMaterial == null)
             {
                 ghostMaterial = BuildModeVisuals.CreateVariant(Match.Arena.Material, "Ghost");
             }
-            model.AddComponent<MeshRenderer>().sharedMaterial = ghostMaterial;
+            var ghostRenderer = model.AddComponent<MeshRenderer>();
+            ghostRenderer.sharedMaterial = ghostMaterial;
+            SelectionOutline.Set(ghostRenderer, OutlineInvalid);
         }
 
         // ---------- Выбор здания ----------
 
-        static readonly int TintId = Shader.PropertyToID("_Tint");
+        static readonly Color OutlineValid = new(0.35f, 1f, 0.4f);
+        static readonly Color OutlineInvalid = new(1f, 0.22f, 0.18f);
 
         // Режим установки: стены и готовые здания полупрозрачные
         void SetBuildFade(bool on)
