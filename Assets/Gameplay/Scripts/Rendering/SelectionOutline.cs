@@ -13,7 +13,7 @@ namespace Generals
         public static Color Color = Color.white;
 
         /// <summary>Толщина линии в пикселях при высоте экрана 1080; на других экранах — пропорционально</summary>
-        public static float WidthAt1080 = 4f;
+        public static float WidthAt1080 = 8f;
         /// <summary>Сила линии там, где объект закрыт стеной или другим зданием</summary>
         public static float HiddenLineAlpha = 0.45f;
         /// <summary>Заливка закрытой части объекта</summary>

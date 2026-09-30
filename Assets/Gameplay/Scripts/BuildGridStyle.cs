@@ -8,15 +8,15 @@ namespace Generals
     public class BuildGridStyle
     {
         [Tooltip("Клетка, где выбранное здание ставить можно. Альфа цвета умножается на непрозрачность линий и заливки")]
-        public Color freeColor = new Color32(70, 235, 90, 255);
+        public Color freeColor = new(0.609f, 0.802f, 0.632f);
         [Tooltip("Клетка, где выбранное здание ставить нельзя")]
-        public Color blockedColor = new Color32(245, 60, 45, 255);
+        public Color blockedColor = new(0.840f, 0.514f, 0.487f);
         [Tooltip("Половина толщины линии, доля клетки (у соседних клеток линии складываются)")]
         [Range(0f, 0.2f)] public float lineWidth = 0.045f;
         [Range(0f, 1f)] public float lineAlpha = 0.9f;
         [Range(0f, 1f)] public float fillAlpha = 0.16f;
         [Tooltip("Апофема квадрата сетки вокруг центра экрана, в клетках")]
-        [Range(5, 100)] public int apothem = 50;
+        [Range(5, 100)] public int apothem = 38;
         [Tooltip("Сколько крайних клеток плавно тают")]
         [Range(0, 30)] public int fadeCells = 8;
     }
@@ -42,7 +42,7 @@ namespace Generals
         [Tooltip("Здание здесь поставить нельзя")]
         public Color invalidColor = new(1f, 0.22f, 0.18f);
         [Tooltip("Толщина линии в пикселях при высоте экрана 1080, на других экранах — пропорционально")]
-        [Range(1f, 12f)] public float widthAt1080 = 4f;
+        [Range(1f, 12f)] public float widthAt1080 = 8f;
         [Tooltip("Сила линии там, где здание закрыто стеной или другим зданием")]
         [Range(0f, 1f)] public float hiddenLineAlpha = 0.45f;
         [Tooltip("Заливка закрытой части здания")]

@@ -6,8 +6,8 @@ Shader "NoobGenerals/BuildGrid"
 {
     Properties
     {
-        _FreeColor ("Свободная клетка", Color) = (0.27, 0.92, 0.35, 1)
-        _BlockedColor ("Занятая клетка", Color) = (0.96, 0.24, 0.18, 1)
+        _FreeColor ("Свободная клетка", Color) = (0.609, 0.802, 0.632, 1)
+        _BlockedColor ("Занятая клетка", Color) = (0.840, 0.514, 0.487, 1)
         _LineWidth ("Половина толщины линии, доля клетки", Range(0, 0.2)) = 0.045
         _LineAlpha ("Непрозрачность линий", Range(0, 1)) = 0.9
         _FillAlpha ("Непрозрачность заливки", Range(0, 1)) = 0.16
