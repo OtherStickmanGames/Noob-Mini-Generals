@@ -60,6 +60,7 @@ namespace Generals
         void Awake()
         {
             Instance = this;
+            gameObject.AddComponent<PhysicsQueries>();
             Effects = gameObject.AddComponent<Effects>();
             Projectiles = gameObject.AddComponent<Projectiles>();
             Projectiles.Init(arena, Effects);

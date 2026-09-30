@@ -347,7 +347,7 @@ public class ArenaTestController : MonoBehaviour
         GUILayout.Label($"FPS: {fps:0}");
         GUILayout.Label($"Арена {dims.x}x{dims.y}x{dims.z}, воксель {arena.VoxelSize}");
         GUILayout.Label($"Сид {arena.Seed}, биом: {ArenaBiomes.DisplayName(arena.Biome)}, генерация {arena.LastGenerateMs:0} мс");
-        GUILayout.Label($"Треугольников: {arena.TotalTriangles}");
+        GUILayout.Label($"Треугольников: {arena.TotalTriangles}, в форме для коллайдера и NavMesh: {arena.TotalShapeTriangles}");
         GUILayout.Label($"Перестроено чанков: {arena.LastRebuiltChunks}, выбито: {lastRemoved}");
         GUILayout.Label($"  меш (джобы): {arena.LastMeshMs:0.00} мс");
         GUILayout.Label($"  меш + коллайдер: {arena.LastApplyMs:0.00} мс");

@@ -10,7 +10,8 @@ using Debug = UnityEngine.Debug;
 /// <summary>
 /// Воксельная арена фиксированного размера. Все воксели лежат в одном массиве,
 /// чанки 16³ нужны только для мешей и коллайдеров. Арена не должна быть повёрнута.
-/// У каждого чанка два меша: суша (с MeshCollider) и вода (только отрисовка).
+/// У каждого чанка три меша: суша и вода для отрисовки и форма суши (без цвета и затенения,
+/// грани склеены крупно) — для MeshCollider и NavMesh.
 /// </summary>
 public class VoxelArena : MonoBehaviour
 {
@@ -26,7 +27,7 @@ public class VoxelArena : MonoBehaviour
     [SerializeField] float voxelSize = 0.5f;
     [SerializeField] ArenaGenSettings generation = ArenaGenSettings.Default;
 
-    /// <summary>Меши чанка изменились: суша, вода (null — пусто), матрица чанка.</summary>
+    /// <summary>Меши чанка изменились: форма суши, вода (null — пусто), матрица чанка.</summary>
     public event Action<int, Mesh, Mesh, Matrix4x4> ChunkMeshChanged;
     public event Action Generated;
 
@@ -76,16 +77,20 @@ public class VoxelArena : MonoBehaviour
     public double LastMeshMs { get; private set; }
     public double LastApplyMs { get; private set; }
     public int TotalTriangles { get; private set; }
+    /// <summary>Треугольников в мешах формы (коллайдер и NavMesh)</summary>
+    public int TotalShapeTriangles { get; private set; }
 
     class Chunk
     {
         public GameObject root;
         public Mesh land;
         public Mesh water;
+        public Mesh shape;
         public MeshRenderer landRenderer;
         public MeshRenderer waterRenderer;
         public MeshCollider collider;
         public int triangles;
+        public int shapeTriangles;
         public bool dirty;
     }
 
@@ -171,6 +176,7 @@ public class VoxelArena : MonoBehaviour
         {
             Destroy(chunk.land);
             Destroy(chunk.water);
+            Destroy(chunk.shape);
         }
         Destroy(paletteTexture);
     }
@@ -443,6 +449,7 @@ public class VoxelArena : MonoBehaviour
                 root = root,
                 land = land,
                 water = water,
+                shape = new Mesh { name = root.name + " Shape" },
                 landRenderer = landRenderer,
                 waterRenderer = waterRenderer,
                 collider = collider,
@@ -455,18 +462,21 @@ public class VoxelArena : MonoBehaviour
         int count = dirtyChunks.Count;
         var landBuffers = new MeshBuffers[count];
         var waterBuffers = new MeshBuffers[count];
-        var handles = new NativeArray<JobHandle>(count * 2, Allocator.Temp);
+        var shapeBuffers = new MeshBuffers[count];
+        var handles = new NativeArray<JobHandle>(count * 3, Allocator.Temp);
 
-        // 1. Меши во всех рабочих потоках: суша и вода отдельными джобами
+        // 1. Меши во всех рабочих потоках: суша, вода и форма суши отдельными джобами
         timer.Restart();
         for (int k = 0; k < count; k++)
         {
             int3 origin = ChunkCoord(dirtyChunks[k]) * ChunkSize;
             landBuffers[k] = new MeshBuffers();
             waterBuffers[k] = new MeshBuffers();
+            shapeBuffers[k] = new MeshBuffers();
 
-            handles[k * 2] = ScheduleMesh(origin, false, landBuffers[k]);
-            handles[k * 2 + 1] = ScheduleMesh(origin, true, waterBuffers[k]);
+            handles[k * 3] = ScheduleMesh(origin, false, false, landBuffers[k]);
+            handles[k * 3 + 1] = ScheduleMesh(origin, true, false, waterBuffers[k]);
+            handles[k * 3 + 2] = ScheduleMesh(origin, false, true, shapeBuffers[k]);
         }
         JobHandle.CompleteAll(handles);
         handles.Dispose();
@@ -483,22 +493,29 @@ public class VoxelArena : MonoBehaviour
 
             bool hasLand = ApplyMesh(chunk.land, landBuffers[k]);
             chunk.landRenderer.enabled = hasLand;
+            ApplyMesh(chunk.shape, shapeBuffers[k]);
             chunk.collider.enabled = hasLand;
             if (hasLand)
-                chunk.collider.sharedMesh = chunk.land;
+                chunk.collider.sharedMesh = chunk.shape;
 
             chunk.waterRenderer.enabled = ApplyMesh(chunk.water, waterBuffers[k]);
             chunk.triangles = (landBuffers[k].indices.Length + waterBuffers[k].indices.Length) / 3;
+            chunk.shapeTriangles = shapeBuffers[k].indices.Length / 3;
 
             landBuffers[k].Dispose();
             waterBuffers[k].Dispose();
+            shapeBuffers[k].Dispose();
         }
         LastApplyMs = timer.Elapsed.TotalMilliseconds;
 
-        int total = 0;
+        int total = 0, shapeTotal = 0;
         foreach (var chunk in chunks)
+        {
             total += chunk.triangles;
+            shapeTotal += chunk.shapeTriangles;
+        }
         TotalTriangles = total;
+        TotalShapeTriangles = shapeTotal;
         LastRebuiltChunks = count;
 
         foreach (int index in dirtyChunks)
@@ -508,7 +525,7 @@ public class VoxelArena : MonoBehaviour
 
             ChunkMeshChanged?.Invoke(
                 index,
-                chunk.landRenderer.enabled ? chunk.land : null,
+                chunk.landRenderer.enabled ? chunk.shape : null,
                 chunk.waterRenderer.enabled ? chunk.water : null,
                 chunk.root.transform.localToWorldMatrix);
         }
@@ -516,7 +533,7 @@ public class VoxelArena : MonoBehaviour
         dirtyChunks.Clear();
     }
 
-    JobHandle ScheduleMesh(int3 origin, bool water, MeshBuffers buffers)
+    JobHandle ScheduleMesh(int3 origin, bool water, bool plain, MeshBuffers buffers)
     {
         return new GreedyMeshJob
         {
@@ -526,6 +543,7 @@ public class VoxelArena : MonoBehaviour
             chunkOrigin = origin,
             chunkSize = ChunkSize,
             water = water,
+            plain = plain,
             positions = buffers.positions,
             normals = buffers.normals,
             colors = buffers.colors,
@@ -544,8 +562,12 @@ public class VoxelArena : MonoBehaviour
 
         mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         mesh.SetVertices(buffers.positions.AsArray());
-        mesh.SetNormals(buffers.normals.AsArray());
-        mesh.SetColors(buffers.colors.AsArray());
+        // У меша формы нормалей и цветов нет
+        if (buffers.normals.Length > 0)
+        {
+            mesh.SetNormals(buffers.normals.AsArray());
+            mesh.SetColors(buffers.colors.AsArray());
+        }
         mesh.SetIndices(buffers.indices.AsArray(), MeshTopology.Triangles, 0);
 
         // Границы задаём явно: по ним Unity решает, виден ли чанк камере

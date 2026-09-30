@@ -8,6 +8,8 @@ using UnityEngine;
 /// Строит меш одного чанка. Соседние грани склеиваются в один прямоугольник,
 /// только если у них одинаковый цвет и одинаковое затенение во всех четырёх углах.
 /// Координаты вершин — в вокселях относительно начала чанка.
+/// Режим plain — меш только формы (без цвета, затенения и нормалей): грани склеиваются
+/// в крупные прямоугольники. Им пользуются коллайдер и NavMesh.
 /// </summary>
 [BurstCompile]
 public struct GreedyMeshJob : IJob
@@ -19,6 +21,7 @@ public struct GreedyMeshJob : IJob
     public int chunkSize;
     // false — меш суши (всё, кроме воды), true — меш воды
     public bool water;
+    public bool plain;
 
     public NativeList<float3> positions;
     public NativeList<float3> normals;
@@ -71,7 +74,11 @@ public struct GreedyMeshJob : IJob
                     int3 q = p + ed * dir;
                     byte next = GetBlock(q);
                     bool visible = next == VoxelBlocks.Air || (!water && next == VoxelBlocks.Water);
-                    if (visible)
+                    if (visible && plain)
+                    {
+                        key = 1;
+                    }
+                    else if (visible)
                     {
                         int color = faceColors[block * 3 + face];
                         int ao0 = 3, ao1 = 3, ao2 = 3, ao3 = 3;
@@ -178,6 +185,8 @@ public struct GreedyMeshJob : IJob
     void AddVertex(float3 position, float3 normal, byte color, int ao)
     {
         positions.Add(position);
+        if (plain)
+            return;
         normals.Add(normal);
         colors.Add(new Color32(color, (byte)(ao * 85), 0, 255));
     }

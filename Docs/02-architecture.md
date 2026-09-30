@@ -42,10 +42,11 @@
 ### Хранение и меш
 - `VoxelArena.cs`: один `NativeArray<byte>` на всю арену (id блока), чанки 16³.
 - Меш чанка — Burst-джоб `Jobs/GreedyMeshJob.cs`: склеивает грани с одинаковым цветом палитры и AO.
-  Режимы: суша и вода (вода — отдельный дочерний меш чанка).
-- **Меш собирается обычными `SetVertices / SetNormals / SetColors / SetIndices`**, и один и тот же
-  меш идёт и в `MeshRenderer`, и в `MeshCollider`. (Ручной `SetVertexBufferParams` ломал
-  коллайдер — см. `04-problems-and-lessons.md`.)
+  Режимы: суша и вода (вода — отдельный дочерний меш чанка) и `plain` — форма суши без цвета,
+  AO и нормалей, грани склеены крупно (в разы меньше треугольников).
+- **Меш собирается обычными `SetVertices / SetNormals / SetColors / SetIndices`**. Меш суши идёт в
+  `MeshRenderer`, меш формы — в `MeshCollider` и в источник NavMesh. (Ручной `SetVertexBufferParams`
+  ломал коллайдер — см. `04-problems-and-lessons.md`.)
 - Цвет вершины: `r` — индекс в палитре (0..255), `g` — AO.
 - `GetBlock(voxel)`, `ClearVoxels(список)` — прочитать блок, выбить набор вокселей (участки стен).
 - `Explode(worldCenter, radius)` — разрушение; перестраиваются только затронутые чанки
@@ -84,8 +85,11 @@
 
 ### NavMesh (`ArenaNavMesh.cs`)
 - Один `NavMeshData` на всю арену, **готовый список источников** (`NavMeshBuildSource`) по
-  мешам чанков; обновление `NavMeshBuilder.UpdateNavMeshDataAsync` только в границах изменений.
+  мешам формы чанков; обновление `NavMeshBuilder.UpdateNavMeshDataAsync`.
 - Размер плитки = чанк, поэтому пересобираются только изменённые плитки. NavMeshLinks не нужны.
+  Но **каждое обновление заново хеширует все источники арены** (`NavMesh.HashTile / HashSource`
+  в рабочих потоках, десятки мс), поэтому пересборка — не чаще раза в `minRebuildInterval` (1 с),
+  правки за это время идут одной сборкой.
 - Вода — источник с областью Not Walkable. Здания — `NavMeshObstacle` с вырезанием.
 - Замер: взрыв ≈ 1.8 мс меш, 30–100 мс NavMesh за 2 кадра (асинхронно).
 
@@ -102,7 +106,7 @@
 
 | Файл | Роль |
 |---|---|
-| `MatchManager.cs` | Синглтон боя. По `arena.Generated`: стороны, `BuildGrid`, точки захвата, главное здание (повернуто к воротам) и стартовый добытчик; строители — когда готов NavMesh. Заказ построек, найм строителей, общий материал зданий. Пехота: `SpawnSquad` (отряд выходит из казарм к воротам), `UpdateSquads`, `GateOf`, `SquadPost` (посты отрядов в обороне за воротами, по три в ряд). Отладка: C — захват точки, V / B — отряд противника (5 бойцов) в атаке / обороне. Держит `Projectiles` и `Effects` (добавляет их себе в `Awake`). Бой: `StructureDestroyed` (освобождает клетки, казармы возвращают очередь, главное здание → `Winner`, `IsOver`, `EndPoint`), `MatchTime`, `NewMatch` (новый сид, `arena.Generate()`). Стены: участки (`CreateWallSegments`, `WallSegmentAt`, `WallSegmentDestroyed` — с турелью на нём). Атака построек: `ChooseAttackTarget` (случайная из ближайших, веса: близость, здание ×2, меньше уже атакующих; внутри вражеских стен — только здания, `IsInsideWalls` по `layout.baseZone`), `ClaimAttackSlot` / `ReleaseAttackSlot` (позиции кольцом вокруг цели: NavMesh, линия огня, путь есть, не в воротах, не рядом с чужой позицией). |
+| `MatchManager.cs` | Синглтон боя. По `arena.Generated`: стороны, `BuildGrid`, точки захвата, главное здание (повернуто к воротам) и стартовый добытчик; строители — когда готов NavMesh. Заказ построек, найм строителей, общий материал зданий. Пехота: `SpawnSquad` (отряд выходит из казарм к воротам), `UpdateSquads`, `GateOf`, `SquadPost` (посты отрядов в обороне за воротами, по три в ряд). Отладка: C — захват точки, V / B — отряд противника (5 бойцов) в атаке / обороне. Держит `Projectiles`, `Effects` и `PhysicsQueries` (добавляет их себе в `Awake`; `PhysicsQueries` отключает шаг симуляции физики — она нужна только для лучей — и раз за кадр делает `Physics.SyncTransforms`). Бой: `StructureDestroyed` (освобождает клетки, казармы возвращают очередь, главное здание → `Winner`, `IsOver`, `EndPoint`), `MatchTime`, `NewMatch` (новый сид, `arena.Generate()`). Стены: участки (`CreateWallSegments`, `WallSegmentAt`, `WallSegmentDestroyed` — с турелью на нём). Атака построек: `ChooseAttackTarget` (случайная из ближайших, веса: близость, здание ×2, меньше уже атакующих; внутри вражеских стен — только здания, `IsInsideWalls` по `layout.baseZone`), `ClaimAttackSlot` / `ReleaseAttackSlot` (позиции кольцом вокруг цели: NavMesh, линия огня, путь есть, не в воротах, не рядом с чужой позицией). |
 | `Faction.cs` | Сторона: ресурсы, уровень стен, здания, строители, пехота (`units`), участки стены (`walls`), очередь найма строителей, итоги боя (нанято/потеряно бойцов, построено/потеряно зданий). |
 | `StructureCatalog.cs` | Типы зданий (Headquarters, Extractor, Mine, Barracks, Turret, ReinforcementPoint), размеры, цены, время, HP, правило места (`InsideWalls`, `BaseArea`, `Deposit`), экономические константы. |
 | `Structure.cs` | Здание (`IAreaTarget`, крошится через `DestructibleModel`): стройка по вокселям (`DestructibleModel.SetBuildProgress`, прочность растёт с 10% вместе со стройкой), доход, `BoxCollider` для тапа и попаданий (по высоте уже уложенного), выбивание вокселей — по накопленному урону (`damageTaken`), `NavMeshObstacle` с вырезанием. Урон → при нуле `MatchManager.StructureDestroyed`, эффект обрушения, `Destroy`. |

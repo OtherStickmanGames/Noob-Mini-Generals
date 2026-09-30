@@ -19,6 +19,9 @@ public class ArenaNavMesh : MonoBehaviour
     [SerializeField] int navCellsPerVoxel = 3;
     [Tooltip("Высота уступа, на который агент заходит без линков, в вокселях")]
     [SerializeField] float stepHeightInVoxels = 1.05f;
+    [Tooltip("Не чаще одной пересборки за столько секунд: в бою воронки и сколы стен идут непрерывно, " +
+             "а каждая сборка заново хеширует геометрию всей арены в рабочих потоках")]
+    [SerializeField] float minRebuildInterval = 1f;
 
     VoxelArena arena;
     NavMeshData data;
@@ -39,6 +42,7 @@ public class ArenaNavMesh : MonoBehaviour
 
     readonly Stopwatch timer = new();
     int startFrame;
+    float lastStartTime = float.NegativeInfinity;
 
     public bool HasNavMesh { get; private set; }
     public bool IsBusy => dirty || running != null;
@@ -150,11 +154,15 @@ public class ArenaNavMesh : MonoBehaviour
             HasNavMesh = true;
         }
 
-        // Одна сборка за раз; всё, что изменилось во время неё, уйдёт следующей
+        // Одна сборка за раз; всё, что изменилось во время неё и после, уйдёт следующей.
+        // Первая сборка — сразу: без неё юниты не могут появиться
         if (!dirty || running != null)
+            return;
+        if (HasNavMesh && Time.realtimeSinceStartup - lastStartTime < minRebuildInterval)
             return;
 
         dirty = false;
+        lastStartTime = Time.realtimeSinceStartup;
         buildSources.Clear();
         buildSources.AddRange(sources);
 
