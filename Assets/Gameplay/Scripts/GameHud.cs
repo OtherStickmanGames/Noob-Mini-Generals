@@ -58,7 +58,7 @@ namespace Generals
         bool placingHasCell;
         int2 grabOffset;
         GameObject ghost;
-        Renderer ghostSlab;
+        Material ghostMaterial;
         float ghostHeight;
         BuildGridOverlay gridOverlay;
 
@@ -109,6 +109,9 @@ namespace Generals
             rtsCamera.ObjectDragged -= Ghost_Dragged;
             rtsCamera.ObjectDragEnded -= Ghost_Dragged;
             rtsCamera.TryBeginObjectDrag = null;
+            SetBuildFade(false);
+            if (ghostMaterial != null)
+                Destroy(ghostMaterial);
         }
 
         void Update()
@@ -225,6 +228,7 @@ namespace Generals
             if (gridOverlay == null)
                 gridOverlay = BuildGridOverlay.Create(Match.Arena);
             gridOverlay.Show(Match.Grid, Player, def.rule, center);
+            SetBuildFade(true);
 
             SetGhostMin(FindInitialSpot(def, center));
         }
@@ -306,7 +310,7 @@ namespace Generals
 
             ghost.SetActive(true);
             ghost.transform.position = Match.CellCenter(placingMin, placingDef.footprint);
-            ghostSlab.material.color = placingValid ? new Color(0.3f, 0.9f, 0.3f) : new Color(0.95f, 0.25f, 0.2f);
+            ghostMaterial.SetColor(TintId, placingValid ? new Color(0.25f, 0.95f, 0.3f, 0.45f) : new Color(1f, 0.2f, 0.15f, 0.55f));
 
             bool affordable = Player.CanAfford(placingDef.costBase, placingDef.costValuable);
             confirmButton.interactable = placingValid && affordable;
@@ -357,6 +361,7 @@ namespace Generals
             placementHintPanel.SetActive(false);
             if (gridOverlay != null)
                 gridOverlay.Hide();
+            SetBuildFade(false);
             if (ghost != null)
                 Destroy(ghost);
             ghost = null;
@@ -374,20 +379,32 @@ namespace Generals
             model.transform.localScale = Vector3.one * VoxelModels.VoxelSize;
             model.transform.localPosition = new Vector3(-size.x, 0f, -size.z) * (VoxelModels.VoxelSize * 0.5f);
             model.AddComponent<MeshFilter>().sharedMesh = mesh;
-            model.AddComponent<MeshRenderer>().sharedMaterial = Match.Arena.Material;
             ghostHeight = size.y * VoxelModels.VoxelSize;
 
-            // Цветная плита под зданием: зелёная — можно, красная — нельзя
-            var slab = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            Destroy(slab.GetComponent<Collider>());
-            slab.transform.SetParent(ghost.transform, false);
-            float cell = Match.Arena.VoxelSize;
-            slab.transform.localScale = new Vector3(def.footprint.x * cell, 0.1f, def.footprint.y * cell);
-            slab.transform.localPosition = new Vector3(0f, 0.06f, 0f);
-            ghostSlab = slab.GetComponent<Renderer>();
+            // Свой материал: не прозрачный и подкрашивается зелёным или красным
+            if (ghostMaterial == null)
+            {
+                ghostMaterial = new Material(Match.Arena.Material) { name = "Ghost" };
+                ghostMaterial.SetFloat("_FadeWalls", 0f);
+                ghostMaterial.SetFloat("_FadeWhole", 0f);
+            }
+            model.AddComponent<MeshRenderer>().sharedMaterial = ghostMaterial;
         }
 
         // ---------- Выбор здания ----------
+
+        static readonly int TintId = Shader.PropertyToID("_Tint");
+        static readonly int BuildFadeId = Shader.PropertyToID("_VoxelBuildFade");
+
+        // Режим установки: стены и готовые здания полупрозрачные, чтобы было видно сетку
+        static void SetBuildFade(bool on)
+        {
+            Shader.SetGlobalFloat(BuildFadeId, 0.5f);
+            if (on)
+                Shader.EnableKeyword("_VOXEL_BUILD_FADE");
+            else
+                Shader.DisableKeyword("_VOXEL_BUILD_FADE");
+        }
 
         void Select(Structure structure)
         {

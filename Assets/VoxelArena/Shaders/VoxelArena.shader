@@ -8,6 +8,10 @@ Shader "NoobGenerals/VoxelArena"
         _TintStrength ("Разброс оттенка вокселей", Range(0, 0.3)) = 0.06
         _AOStrength ("Затенение углов", Range(0, 1)) = 0.65
         _AmbientStrength ("Сила окружающего света", Range(0, 2)) = 1
+        [Header(Build mode)]
+        _Tint ("Подкраска (альфа — сила)", Color) = (1, 1, 1, 0)
+        [Toggle] _FadeWalls ("Стены прозрачнее при установке здания", Float) = 1
+        [Toggle] _FadeWhole ("Весь объект прозрачнее при установке здания", Float) = 0
     }
 
     SubShader
@@ -21,7 +25,29 @@ Shader "NoobGenerals/VoxelArena"
             half _TintStrength;
             half _AOStrength;
             half _AmbientStrength;
+            half4 _Tint;
+            half _FadeWalls;
+            half _FadeWhole;
         CBUFFER_END
+
+        // Режим установки здания (глобальный ключ _VOXEL_BUILD_FADE): стены арены и готовые здания
+        // становятся полупрозрачными. Прозрачность — сеткой пикселей (дизеринг), поэтому остаётся
+        // непрозрачный проход без сортировки. Без ключа отсечения в шейдере нет.
+        float _VoxelBuildFade;
+
+        #define PALETTE_WALL_TOP 15
+        #define PALETTE_WALL_SIDE 16
+
+        void BuildFadeClip(float4 positionCS, int paletteIndex)
+        {
+        #if defined(_VOXEL_BUILD_FADE)
+            static const float bayer[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+            bool wall = paletteIndex == PALETTE_WALL_TOP || paletteIndex == PALETTE_WALL_SIDE;
+            half fade = _VoxelBuildFade * max(_FadeWhole, wall ? _FadeWalls : 0);
+            uint2 p = (uint2)positionCS.xy & 3;
+            clip((bayer[p.y * 4 + p.x] + 0.5) / 16.0 - fade);
+        #endif
+        }
         ENDHLSL
 
         Pass
@@ -35,6 +61,7 @@ Shader "NoobGenerals/VoxelArena"
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
             #pragma multi_compile_fog
+            #pragma multi_compile _ _VOXEL_BUILD_FADE
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
@@ -81,6 +108,7 @@ Shader "NoobGenerals/VoxelArena"
                 float3 normalWS = normalize(input.normalWS);
 
                 int paletteIndex = (int)round(input.color.r * 255.0);
+                BuildFadeClip(input.positionCS, paletteIndex);
                 half3 albedo = LOAD_TEXTURE2D(_VoxelPaletteTex, int2(paletteIndex, 0)).rgb;
 
                 // Свой оттенок у каждого вокселя: меш склеен, а воксели всё равно читаются
@@ -95,6 +123,8 @@ Shader "NoobGenerals/VoxelArena"
                 half3 ambient = SampleSH(normalWS) * _AmbientStrength;
 
                 half3 color = albedo * (diffuse + ambient) * ao;
+                // Подкраска призрака здания: зелёный — можно ставить, красный — нельзя
+                color = lerp(color, _Tint.rgb * (0.6 + 0.4 * diffuseTerm), _Tint.a);
                 color = MixFog(color, input.fogFactor);
                 return half4(color, 1.0);
             }
@@ -159,14 +189,31 @@ Shader "NoobGenerals/VoxelArena"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma multi_compile _ _VOXEL_BUILD_FADE
 
-            float4 vert(float4 positionOS : POSITION) : SV_POSITION
+            struct Attributes
             {
-                return TransformObjectToHClip(positionOS.xyz);
+                float4 positionOS : POSITION;
+                float4 color : COLOR;
+            };
+
+            struct Varyings
+            {
+                float4 positionCS : SV_POSITION;
+                float paletteIndex : TEXCOORD0;
+            };
+
+            Varyings vert(Attributes input)
+            {
+                Varyings output;
+                output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
+                output.paletteIndex = input.color.r * 255.0;
+                return output;
             }
 
-            half frag() : SV_Target
+            half frag(Varyings input) : SV_Target
             {
+                BuildFadeClip(input.positionCS, (int)round(input.paletteIndex));
                 return 0;
             }
             ENDHLSL

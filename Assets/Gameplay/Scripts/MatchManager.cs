@@ -22,6 +22,23 @@ namespace Generals
         public BuildGrid Grid { get; private set; }
         public IReadOnlyList<CapturePoint> CapturePoints => capturePoints;
 
+        /// <summary>Материал зданий: копия материала арены, при установке здания становится полупрозрачным целиком</summary>
+        public Material StructureMaterial
+        {
+            get
+            {
+                if (structureMaterial == null)
+                {
+                    structureMaterial = new Material(arena.Material) { name = "Structures" };
+                    structureMaterial.SetFloat("_FadeWalls", 0f);
+                    structureMaterial.SetFloat("_FadeWhole", 1f);
+                }
+                return structureMaterial;
+            }
+        }
+
+        Material structureMaterial;
+
         readonly List<CapturePoint> capturePoints = new();
         readonly List<GameObject> spawned = new();
         bool buildersSpawned;
@@ -129,7 +146,7 @@ namespace Generals
                 rotation = GateRotation(faction.team);
 
             structure.Init(def, faction, min, CellCenter(min, def.footprint), arena.VoxelSize,
-                           rotation, built, capturePoint, arena.Material);
+                           rotation, built, capturePoint, StructureMaterial);
 
             faction.structures.Add(structure);
             Grid.SetOccupied(min, def.footprint, true);
