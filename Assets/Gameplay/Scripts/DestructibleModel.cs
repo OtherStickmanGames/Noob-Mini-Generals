@@ -11,6 +11,10 @@ namespace Generals
     /// MaxChippedShare модели, дальше здание рушится целиком (это решает Structure).
     /// Выбиваются воксели ближе всего к точке попадания; куски, потерявшие связь с фундаментом, падают.
     /// Фундамент (нижний слой) не выбивается — здание до конца стоит на земле.
+    ///
+    /// Стройка: здание выкладывается по вокселям слой за слоем снизу вверх (внутри слоя — вразнобой),
+    /// ещё не уложенная часть видна полупрозрачным чертежом с сеткой вокселей. Выбитое во время
+    /// стройки так и остаётся выбитым (ремонта пока нет).
     /// </summary>
     public class DestructibleModel
     {
@@ -19,6 +23,9 @@ namespace Generals
         const int MaxDebrisPerHit = 24;
         const int MaxFallingDebris = 80;
         const int MaxShatterDebris = 170;
+        // Не больше стольких эффектов укладки за вызов и пересборок меша в секунду во время стройки
+        const int MaxPlaceEffects = 6;
+        const float BuildRebuildInterval = 0.06f;
 
         readonly VoxelModels.Model model;
         readonly Transform modelTransform;
@@ -27,28 +34,118 @@ namespace Generals
         int removed;
         bool dirty;
 
+        // Стройка: полная модель, порядок укладки, сколько уложено, чертёж неуложенного
+        readonly VoxelModels.Model blueprint;
+        readonly int[] buildOrder;
+        int placed;
+        VoxelModels.Model ghostModel;
+        Mesh ghostMesh;
+        GameObject ghostObject;
+        float lastRebuildTime;
+        int builtTop;
+
         readonly List<(float distance, int index)> candidates = new();
         readonly bool[] connected;
         readonly Queue<int> queue = new();
 
-        public DestructibleModel(VoxelModels.Model model, Transform modelTransform, MeshFilter filter, string name)
+        /// <param name="built">false — здание только заложено: модель пустая, виден чертёж</param>
+        public DestructibleModel(VoxelModels.Model full, Transform modelTransform, MeshFilter filter, string name,
+                                 bool built, Material blueprintMaterial)
         {
-            this.model = model;
             this.modelTransform = modelTransform;
-            mesh = model.ToMesh(name);
-            filter.sharedMesh = mesh;
-            connected = new bool[model.Voxels.Length];
-            foreach (var v in model.Voxels)
+            connected = new bool[full.Voxels.Length];
+            foreach (var v in full.Voxels)
                 if (v != 0)
                     initialSolid++;
+
+            if (built)
+            {
+                model = full;
+                builtTop = full.Size.y;
+            }
+            else
+            {
+                blueprint = full;
+                model = new VoxelModels.Model(full.Size.x, full.Size.y, full.Size.z);
+                buildOrder = BuildOrder(full);
+                ghostModel = full.Clone();
+                ghostMesh = ghostModel.ToMesh(name + " (чертёж)");
+                ghostObject = new GameObject("Чертёж");
+                ghostObject.transform.SetParent(modelTransform, false);
+                ghostObject.AddComponent<MeshFilter>().sharedMesh = ghostMesh;
+                var renderer = ghostObject.AddComponent<MeshRenderer>();
+                renderer.sharedMaterial = blueprintMaterial;
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+
+            mesh = model.ToMesh(name);
+            filter.sharedMesh = mesh;
         }
 
         public Mesh Mesh => mesh;
         public int3 Size => model.Size;
+        public bool IsConstructing => buildOrder != null && placed < buildOrder.Length;
+        /// <summary>Высота уже уложенной части, в вокселях модели</summary>
+        public int BuiltTop => builtTop;
 
         public void Dispose()
         {
             Object.Destroy(mesh);
+            DestroyGhost();
+        }
+
+        void DestroyGhost()
+        {
+            if (ghostObject != null)
+                Object.Destroy(ghostObject);
+            if (ghostMesh != null)
+                Object.Destroy(ghostMesh);
+            ghostObject = null;
+            ghostMesh = null;
+            ghostModel = null;
+        }
+
+        // Слой за слоем снизу вверх, внутри слоя — вразнобой (перемешивание со своим сидом)
+        static int[] BuildOrder(VoxelModels.Model full)
+        {
+            var solids = new List<int>();
+            for (int i = 0; i < full.Voxels.Length; i++)
+                if (full.Voxels[i] != 0)
+                    solids.Add(i);
+
+            var rng = new Unity.Mathematics.Random(0x9E3779B9u ^ (uint)full.Voxels.Length);
+            var keys = new Dictionary<int, float>(solids.Count);
+            foreach (int i in solids)
+                keys[i] = full.Coord(i).y + rng.NextFloat();
+            solids.Sort((a, b) => keys[a].CompareTo(keys[b]));
+            return solids.ToArray();
+        }
+
+        /// <summary>Стройка дошла до progress (0..1): уложить недостающие воксели</summary>
+        public void SetBuildProgress(float progress, Effects effects)
+        {
+            if (!IsConstructing)
+                return;
+
+            int target = progress >= 1f ? buildOrder.Length : Mathf.FloorToInt(buildOrder.Length * progress);
+            int effectsLeft = MaxPlaceEffects;
+            while (placed < target)
+            {
+                int i = buildOrder[placed++];
+                model.Voxels[i] = blueprint.Voxels[i];
+                ghostModel.Voxels[i] = 0;
+                builtTop = Mathf.Max(builtTop, model.Coord(i).y + 1);
+                if (effectsLeft-- > 0)
+                    effects.VoxelPlaced(VoxelWorld(i), Slot(blueprint.Voxels[i]), effectsLeft % 3 == 0);
+                dirty = true;
+            }
+
+            if (!IsConstructing)
+            {
+                DestroyGhost();
+                // Последний кадр стройки — сразу полный меш, без задержки
+                lastRebuildTime = float.NegativeInfinity;
+            }
         }
 
         /// <summary>
@@ -213,8 +310,14 @@ namespace Generals
         {
             if (!dirty)
                 return;
+            // Во время стройки воксели ложатся каждый кадр — пересобираем не чаще BuildRebuildInterval
+            if (IsConstructing && Time.time - lastRebuildTime < BuildRebuildInterval)
+                return;
             dirty = false;
+            lastRebuildTime = Time.time;
             model.WriteMesh(mesh);
+            if (ghostModel != null)
+                ghostModel.WriteMesh(ghostMesh);
         }
 
         Vector3 VoxelWorld(int index) => modelTransform.TransformPoint((float3)model.Coord(index) + 0.5f);

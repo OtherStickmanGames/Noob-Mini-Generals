@@ -40,6 +40,7 @@ namespace Generals
         BoxCollider box;
         float modelHeight;
         DestructibleModel destructible;
+        float damageTaken;
 
         public void Init(StructureDef def, Faction faction, int2 minCell, Vector3 center, float cellSize,
                          float rotationY, bool built, CapturePoint capturePoint, Material material)
@@ -48,7 +49,8 @@ namespace Generals
             Faction = faction;
             MinCell = minCell;
             CapturePoint = capturePoint;
-            Health = def.health;
+            // Прочность растёт вместе со стройкой: заложенное здание — 10%
+            Health = built ? def.health : def.health * StartHealthShare;
             HalfExtents = new Vector2(def.footprint.x, def.footprint.y) * cellSize * 0.5f;
 
             name = $"{def.name} {faction.team}";
@@ -69,7 +71,8 @@ namespace Generals
             model.transform.SetParent(holder, false);
             model.transform.localScale = Vector3.one * VoxelModels.VoxelSize;
             model.transform.localPosition = new Vector3(-size.x, 0f, -size.z) * (VoxelModels.VoxelSize * 0.5f);
-            destructible = new DestructibleModel(body, model.transform, model.AddComponent<MeshFilter>(), name);
+            destructible = new DestructibleModel(body, model.transform, model.AddComponent<MeshFilter>(), name,
+                                                 built, MatchManager.Instance.Effects.BlueprintMaterial);
             model.AddComponent<MeshRenderer>().sharedMaterial = material;
 
             // Коллайдер для тапа по зданию и попаданий
@@ -108,7 +111,9 @@ namespace Generals
             if (IsBuilt || !IsAlive)
                 return;
 
+            float previous = Progress;
             Progress = math.saturate(Progress + seconds / Def.buildTime);
+            Health = Mathf.Min(MaxHealth, Health + MaxHealth * (1f - StartHealthShare) * (Progress - previous));
             if (Progress >= 1f)
             {
                 Complete();
@@ -120,21 +125,24 @@ namespace Generals
             }
         }
 
+        const float StartHealthShare = 0.1f;
+
         void Complete()
         {
             IsBuilt = true;
             Progress = 1f;
             UpdateModel();
+            if (Turret != null)
+                Turret.SetBuilt();
         }
 
-        // Недостроенное здание утоплено в землю и поднимается по мере работы;
-        // коллайдер — только над землёй, чтобы пули не попадали в пустоту над стройкой
+        // Стройка идёт по вокселям (DestructibleModel); коллайдер — по высоте уже уложенного,
+        // чтобы пули не попадали в пустоту над стройкой
         void UpdateModel()
         {
-            float sink = modelHeight * (1f - math.lerp(0.15f, 1f, Progress));
-            holder.localPosition = new Vector3(0f, -sink, 0f);
+            destructible.SetBuildProgress(Progress, MatchManager.Instance.Effects);
 
-            float visible = modelHeight - sink;
+            float visible = IsBuilt ? modelHeight : Mathf.Max(VoxelModels.VoxelSize, destructible.BuiltTop * VoxelModels.VoxelSize);
             box.center = new Vector3(0f, visible * 0.5f, 0f);
             box.size = new Vector3(HalfExtents.x * 2f, visible, HalfExtents.y * 2f);
         }
@@ -181,12 +189,14 @@ namespace Generals
                 return;
 
             Health -= amount;
+            damageTaken += amount;
             LastDamageTime = Time.time;
             var effects = MatchManager.Instance.Effects;
             if (Health > 0f)
             {
-                // Крошится там, куда попали: чем меньше прочности, тем больше выбито
-                destructible.Damage(point, direction, 1f - Health / MaxHealth, effects);
+                // Крошится там, куда попали: чем больше урона получено, тем больше выбито. Считается по
+                // урону, а не по остатку прочности: у стройки прочность с самого начала неполная
+                destructible.Damage(point, direction, damageTaken / MaxHealth, effects);
                 return;
             }
 
@@ -198,11 +208,11 @@ namespace Generals
         }
 
         /// <summary>
-        /// Куда целиться: случайный целый воксель со стороны стрелка; у стройки (модель ещё
-        /// в земле) — ближний край на уровне груди
+        /// Куда целиться: случайный целый (уже уложенный) воксель со стороны стрелка; если не уложено
+        /// ничего — ближний край на уровне груди
         /// </summary>
         public Vector3 AimPoint(Vector3 from) =>
-            IsBuilt && destructible.TryPickAimPoint(from, out var point) ? point : Combat.AreaAimPoint(this, from, box.size.y);
+            destructible.TryPickAimPoint(from, out var point) ? point : Combat.AreaAimPoint(this, from, box.size.y);
 
         /// <summary>Промах — в землю у стены здания со стороны стрелка, чуть вбок</summary>
         public Vector3 MissPoint(Vector3 from) => Combat.AreaMissPoint(this, from);

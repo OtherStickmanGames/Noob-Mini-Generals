@@ -14,7 +14,12 @@ namespace Generals
     /// </summary>
     public class Effects : MonoBehaviour
     {
-        public enum Mode { Lit, Palette, Emissive }
+        public enum Mode { Lit, Palette, Emissive, Blueprint }
+
+        static readonly Color BlueprintColor = new(0.55f, 0.8f, 1f, 0.22f);
+
+        /// <summary>Полупрозрачный чертёж недостроенной части здания с сеткой вокселей</summary>
+        public Material BlueprintMaterial { get; private set; }
 
         static Mesh cubeMesh;
 
@@ -41,6 +46,7 @@ namespace Generals
             debrisMaterial = CreateMaterial("Debris", Mode.Palette, Color.white, false);
             smokeMaterial = CreateMaterial("Smoke", Mode.Lit, Color.white, true);
             flashMaterial = CreateMaterial("Flash", Mode.Emissive, new Color(1f, 0.82f, 0.45f, 1f), false);
+            BlueprintMaterial = CreateMaterial("Blueprint", Mode.Blueprint, BlueprintColor, true);
 
             debris = CreateSystem("Обломки", debrisMaterial, 5000, 1f);
             var collision = debris.collision;
@@ -74,6 +80,7 @@ namespace Generals
             Destroy(debrisMaterial);
             Destroy(smokeMaterial);
             Destroy(flashMaterial);
+            Destroy(BlueprintMaterial);
         }
 
         public void Clear()
@@ -156,6 +163,21 @@ namespace Generals
             }
             for (int i = 0; i < 3; i++)
                 EmitSmoke(center + Random.insideUnitSphere * 0.3f, Vector3.up * 0.5f, Random.Range(0.3f, 0.45f), Random.Range(0.8f, 1.2f), 0.6f);
+        }
+
+        /// <summary>
+        /// Стройка: воксель падает на своё место сверху (кубик его цвета, пока меш не показал сам
+        /// воксель) и поднимает немного пыли
+        /// </summary>
+        public void VoxelPlaced(Vector3 position, byte paletteSlot, bool dust)
+        {
+            const float drop = 0.7f;
+            const float time = 0.14f;
+            Emit(debris, position + Vector3.up * drop, Vector3.down * (drop / time), VoxelModels.VoxelSize * 0.95f, time,
+                 new Color32(paletteSlot, 255, 255, 255));
+            if (dust)
+                EmitSmoke(position + Random.insideUnitSphere * 0.1f, Random.insideUnitSphere * 0.4f + Vector3.up * 0.2f,
+                          Random.Range(0.12f, 0.2f), Random.Range(0.5f, 0.8f), 0.5f, DustColor);
         }
 
         /// <summary>Кусок стены (воксель арены крупнее вокселя модели)</summary>
@@ -319,6 +341,8 @@ namespace Generals
                 material.EnableKeyword("_PALETTE");
             else if (mode == Mode.Emissive)
                 material.EnableKeyword("_EMISSIVE");
+            else if (mode == Mode.Blueprint)
+                material.EnableKeyword("_BLUEPRINT");
 
             if (transparent)
             {

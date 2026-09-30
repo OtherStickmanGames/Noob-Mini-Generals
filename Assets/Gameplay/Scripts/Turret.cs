@@ -35,6 +35,25 @@ namespace Generals
             model.transform.localPosition = -VoxelModels.TurretHeadPivot * VoxelModels.VoxelSize;
             model.AddComponent<MeshFilter>().sharedMesh = VoxelModels.TurretHead(structure.Faction.team);
             model.AddComponent<MeshRenderer>().sharedMaterial = material;
+
+            // Башню ставят последней, когда основание достроено (Structure.Complete → SetBuilt)
+            head.gameObject.SetActive(false);
+        }
+
+        /// <summary>Стройка закончена: башня встаёт на основание</summary>
+        public void SetBuilt()
+        {
+            if (head.gameObject.activeSelf)
+                return;
+            head.gameObject.SetActive(true);
+            // Уже стоящие с начала боя турели — без эффекта
+            if (Time.timeSinceLevelLoad > 1f)
+            {
+                var effects = MatchManager.Instance.Effects;
+                for (int i = 0; i < 6; i++)
+                    effects.VoxelPlaced(head.position + Random.insideUnitSphere * 0.3f + Vector3.up * 0.3f,
+                                        VoxelBlocks.SlotMetal, i % 2 == 0);
+            }
         }
 
         // Дульный срез: конец ствола (ствол — z 3..5, высота 1..2 вокселя модели башни)

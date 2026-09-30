@@ -3,6 +3,8 @@
 //   _PALETTE  — цвет из палитры арены: цвет вершины r — индекс палитры, a — непрозрачность.
 //               Обломки земли и зданий сразу в цветах биома и команд.
 //   _EMISSIVE — светится сам, без освещения: _Color * цвет вершины (снаряды, вспышки).
+//   _BLUEPRINT — чертёж недостроенной части здания: _Color, освещённый, по граням вокселей —
+//               яркие линии сетки (координаты объекта — в вокселях модели). Цвет вершины не нужен.
 //   без ключей — освещённый _Color * цвет вершины (дым).
 // Поддерживает инстансинг (Graphics.RenderMeshInstanced для снарядов).
 Shader "NoobGenerals/Effect"
@@ -33,7 +35,7 @@ Shader "NoobGenerals/Effect"
             #pragma fragment frag
             #pragma multi_compile_instancing
             #pragma multi_compile_fog
-            #pragma multi_compile_local _ _PALETTE _EMISSIVE
+            #pragma multi_compile_local _ _PALETTE _EMISSIVE _BLUEPRINT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -59,6 +61,8 @@ Shader "NoobGenerals/Effect"
                 float3 normalWS : TEXCOORD0;
                 float4 color : TEXCOORD1;
                 float fogFactor : TEXCOORD2;
+                float3 positionOS : TEXCOORD3;
+                float3 normalOS : TEXCOORD4;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -73,6 +77,8 @@ Shader "NoobGenerals/Effect"
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
                 output.color = input.color;
                 output.fogFactor = ComputeFogFactor(positions.positionCS.z);
+                output.positionOS = input.positionOS.xyz;
+                output.normalOS = input.normalOS;
                 return output;
             }
 
@@ -86,6 +92,16 @@ Shader "NoobGenerals/Effect"
                     int paletteIndex = (int)round(input.color.r * 255.0);
                     half3 albedo = LOAD_TEXTURE2D(_VoxelPaletteTex, int2(paletteIndex, 0)).rgb;
                     half alpha = input.color.a;
+                #elif defined(_BLUEPRINT)
+                    // Линии по границам вокселей в плоскости грани: две оси, перпендикулярные нормали
+                    float3 cell = frac(input.positionOS);
+                    float3 edge = min(cell, 1.0 - cell);
+                    float3 n = abs(input.normalOS);
+                    float lineDist = n.x > 0.5 ? min(edge.y, edge.z) : n.y > 0.5 ? min(edge.x, edge.z) : min(edge.x, edge.y);
+                    float width = fwidth(lineDist) * 1.5 + 0.02;
+                    half lineMask = 1.0 - smoothstep(width * 0.5, width, lineDist);
+                    half3 albedo = lerp(_Color.rgb, half3(1, 1, 1), lineMask * 0.7);
+                    half alpha = lerp(_Color.a, saturate(_Color.a * 3.0), lineMask);
                 #else
                     half3 albedo = _Color.rgb * input.color.rgb;
                     half alpha = _Color.a * input.color.a;
