@@ -39,6 +39,7 @@ namespace Generals
         [Header("Вид установки (меняется на лету в Play mode)")]
         [SerializeField] BuildGridStyle gridStyle = new();
         [SerializeField] PlacementOutlineStyle outlineStyle = new();
+        [SerializeField] PlacementSceneStyle sceneStyle = new();
 
         [Header("Выбранное здание")]
         [SerializeField] GameObject selectionPanel;
@@ -439,6 +440,9 @@ namespace Generals
             if (ScreenCenterCell(out var centerCell))
                 gridOverlay.SetCenter(centerCell);
 
+            BuildModeVisuals.Apply(Match.StructureMaterial, sceneStyle, true);
+            BuildModeVisuals.Apply(gridOverlay.WallsMaterial, sceneStyle, true);
+
             SelectionOutline.Color = placingValid ? outlineStyle.validColor : outlineStyle.invalidColor;
             SelectionOutline.WidthAt1080 = outlineStyle.widthAt1080;
             SelectionOutline.HiddenLineAlpha = outlineStyle.hiddenLineAlpha;
@@ -515,7 +519,9 @@ namespace Generals
         void SetBuildFade(bool on)
         {
             BuildModeVisuals.SetActive(on);
-            BuildModeVisuals.SetOpacity(Match.StructureMaterial, on ? BuildModeVisuals.Opacity : 1f);
+            BuildModeVisuals.Apply(Match.StructureMaterial, sceneStyle, on);
+            if (on)
+                BuildModeVisuals.Apply(gridOverlay.WallsMaterial, sceneStyle, true);
         }
 
         void Select(Structure structure)

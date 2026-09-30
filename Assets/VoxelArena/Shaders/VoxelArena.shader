@@ -9,7 +9,8 @@ Shader "NoobGenerals/VoxelArena"
         _AOStrength ("Затенение углов", Range(0, 1)) = 0.65
         _AmbientStrength ("Сила окружающего света", Range(0, 2)) = 1
         [Header(Build mode)]
-        _Tint ("Подкраска (альфа — сила)", Color) = (1, 1, 1, 0)
+        _Desaturate ("Приглушить: обесцветить", Range(0, 1)) = 0
+        _Darken ("Приглушить: затемнить", Range(0, 1)) = 0
         [Toggle] _HideWalls ("Прятать стены при установке здания (их рисует прозрачный проход)", Float) = 1
         _Alpha ("Непрозрачность", Range(0, 1)) = 1
         [HideInInspector] _SrcBlend ("", Float) = 1
@@ -28,7 +29,8 @@ Shader "NoobGenerals/VoxelArena"
             half _TintStrength;
             half _AOStrength;
             half _AmbientStrength;
-            half4 _Tint;
+            half _Desaturate;
+            half _Darken;
             half _HideWalls;
             half _Alpha;
         CBUFFER_END
@@ -128,8 +130,9 @@ Shader "NoobGenerals/VoxelArena"
                 half3 ambient = SampleSH(normalWS) * _AmbientStrength;
 
                 half3 color = albedo * (diffuse + ambient) * ao;
-                // Подкраска призрака здания: зелёный — можно ставить, красный — нельзя
-                color = lerp(color, _Tint.rgb * (0.6 + 0.4 * diffuseTerm), _Tint.a);
+                // Приглушение (другие постройки, пока ставится новое здание)
+                half gray = dot(color, half3(0.299, 0.587, 0.114));
+                color = lerp(color, gray.xxx, _Desaturate) * (1.0 - _Darken);
                 color = MixFog(color, input.fogFactor);
                 return half4(color, _Alpha);
             }

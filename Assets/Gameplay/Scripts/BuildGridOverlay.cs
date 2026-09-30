@@ -48,6 +48,9 @@ namespace Generals
 
         // Стены при установке рисуются здесь вторым проходом, полупрозрачными
         Material wallsMaterial;
+
+        /// <summary>Материал второго прохода стен: его прозрачность и приглушение задаёт GameHud</summary>
+        public Material WallsMaterial => wallsMaterial;
         readonly List<(Mesh mesh, Matrix4x4 matrix)> wallChunks = new();
 
         public static BuildGridOverlay Create(VoxelArena arena)

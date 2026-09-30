@@ -21,6 +21,18 @@ namespace Generals
         [Range(0, 30)] public int fadeCells = 8;
     }
 
+    /// <summary>Вид стен и уже поставленных зданий, пока ставится новое</summary>
+    [Serializable]
+    public class PlacementSceneStyle
+    {
+        [Tooltip("Непрозрачность стен и других зданий")]
+        [Range(0.1f, 1f)] public float opacity = 0.9f;
+        [Tooltip("Насколько обесцветить стены и другие здания")]
+        [Range(0f, 1f)] public float desaturate = 0.6f;
+        [Tooltip("Насколько затемнить стены и другие здания")]
+        [Range(0f, 1f)] public float darken = 0.2f;
+    }
+
     /// <summary>Вид контура устанавливаемого здания</summary>
     [Serializable]
     public class PlacementOutlineStyle
