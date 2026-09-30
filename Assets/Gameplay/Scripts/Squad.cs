@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace Generals
 {
@@ -195,22 +196,54 @@ namespace Generals
             facing = rotation;
         }
 
-        static InfantryUnit NearestEnemyUnit(Faction enemy, Vector3 around, float radius)
+        /// <summary>
+        /// Ближайший вражеский боец в радиусе, до которого отряд может добраться: видит его кто-то из
+        /// бойцов или до него есть короткий путь (не в обход через ворота на другом конце базы).
+        /// Враг за стеной — не цель: атакующие продолжат бить постройки (ту же стену), защитники —
+        /// стоять на посту. Иначе обе стороны стоят у стены и ждут друг друга.
+        /// </summary>
+        InfantryUnit NearestEnemyUnit(Faction enemy, Vector3 around, float radius)
         {
-            InfantryUnit best = null;
-            float bestDistance = radius * radius;
+            candidates.Clear();
             foreach (var u in enemy.units)
             {
                 if (!Combat.IsAlive(u))
                     continue;
                 float d = (u.transform.position - around).sqrMagnitude;
-                if (d < bestDistance)
-                {
-                    best = u;
-                    bestDistance = d;
-                }
+                if (d < radius * radius)
+                    candidates.Add((d, u));
             }
-            return best;
+            candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+            // Проверяем только несколько ближайших — путь дорогой
+            for (int i = 0; i < candidates.Count && i < 3; i++)
+                if (CanFight(candidates[i].unit))
+                    return candidates[i].unit;
+            return null;
         }
+
+        bool CanFight(InfantryUnit enemy)
+        {
+            foreach (var m in Members)
+                if (Combat.HasLineOfFire(m.transform.position + Vector3.up * InfantryUnit.ChestHeight, enemy, Faction))
+                    return true;
+
+            var from = Members[0].transform.position;
+            var to = enemy.transform.position;
+            path ??= new NavMeshPath();
+            if (!NavMesh.CalculatePath(from, to, NavMesh.AllAreas, path) || path.status != NavMeshPathStatus.PathComplete)
+                return false;
+
+            float length = 0f;
+            var corners = path.corners;
+            for (int i = 1; i < corners.Length; i++)
+                length += Vector3.Distance(corners[i - 1], corners[i]);
+            var flat = to - from;
+            flat.y = 0f;
+            return length <= flat.magnitude * 1.5f + 6f;
+        }
+
+        readonly List<(float distance, InfantryUnit unit)> candidates = new();
+        static NavMeshPath path;
     }
 }
