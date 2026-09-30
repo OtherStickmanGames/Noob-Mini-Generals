@@ -23,6 +23,29 @@ namespace Generals
         public readonly List<Squad> squads = new();
         /// <summary>Сколько отрядов создано за бой — для их номеров</summary>
         public int squadsCreated;
+
+        /// <summary>Открытое спецоружие (не больше WeaponCatalog.MaxKnownSpecials)</summary>
+        public readonly List<SquadWeapon> knownWeapons = new();
+        /// <summary>Что сейчас изучается в оружейной (у стороны — одно исследование за раз)</summary>
+        public SquadWeapon? researching;
+
+        public bool Knows(SquadWeapon weapon) => weapon == SquadWeapon.Rifle || knownWeapons.Contains(weapon);
+
+        /// <summary>
+        /// Исследование закончено: новое оружие открыто, replaced (если было) — забыто. Казармы, где было
+        /// выбрано забытое оружие, переходят на винтовки; уже нанятые отряды своё оружие сохраняют
+        /// </summary>
+        public void Learn(SquadWeapon weapon, SquadWeapon? replaced)
+        {
+            if (replaced.HasValue && knownWeapons.Remove(replaced.Value))
+            {
+                foreach (var s in structures)
+                    if (s != null && s.Barracks != null && s.Barracks.Weapon == replaced.Value)
+                        s.Barracks.SetWeapon(SquadWeapon.Rifle);
+            }
+            if (!knownWeapons.Contains(weapon))
+                knownWeapons.Add(weapon);
+        }
         /// <summary>Участки стены базы (цели для противника)</summary>
         public readonly List<WallSegment> walls = new();
 

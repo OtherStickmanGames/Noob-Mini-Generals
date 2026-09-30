@@ -130,6 +130,7 @@ namespace Generals.EditorTools
             AddCombatControls(root);
             AddReinforceControls(root, false);
             AddRepeatIcon(root);
+            AddWeaponControls(root, false);
 
             Directory.CreateDirectory(Path.GetDirectoryName(PrefabPath));
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
@@ -153,6 +154,8 @@ namespace Generals.EditorTools
                 UpgradeControls(barracks, combat, reinforce);
             if (NeedsRepeatIcon(AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath).GetComponent<GameHud>()))
                 AddRepeatIconTo(PrefabPath);
+            if (NeedsWeaponControls(AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath).GetComponent<GameHud>()))
+                AddWeaponControlsTo(PrefabPath, false);
 
             // Мобильный интерфейс: собрать, если его нет, и привязать к ПК-интерфейсу
             HudMobilePrefabBuilder.EnsureAndLink();
@@ -181,6 +184,124 @@ namespace Generals.EditorTools
             {
                 PrefabUtility.UnloadPrefabContents(root);
             }
+        }
+
+        internal static bool NeedsWeaponControls(GameHud hud)
+        {
+            var so = new SerializedObject(hud);
+            return so.FindProperty("weaponRow").objectReferenceValue == null ||
+                   so.FindProperty("armouryPanel").objectReferenceValue == null;
+        }
+
+        /// <summary>Дополнить уже существующий префаб вооружением казарм и панелью оружейной</summary>
+        internal static void AddWeaponControlsTo(string prefabPath, bool mobile)
+        {
+            var root = PrefabUtility.LoadPrefabContents(prefabPath);
+            try
+            {
+                AddWeaponControls(root, mobile);
+                PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+                Debug.Log($"[HUD] В {prefabPath} добавлены вооружение в казармах и панель оружейной");
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+
+        /// <summary>
+        /// Строка «Вооружение» в панели казарм — над «Оборона / Атака» (панель становится выше на строку),
+        /// и панель оружейной над панелью здания: заголовок, строки спецоружия, строка «Изучить … вместо:».
+        /// mobile — всё крупнее, под палец.
+        /// </summary>
+        internal static void AddWeaponControls(GameObject root, bool mobile)
+        {
+            var so = new SerializedObject(root.GetComponent<GameHud>());
+            var selection = ((GameObject)so.FindProperty("selectionPanel").objectReferenceValue).GetComponent<RectTransform>();
+            var behavior = ((GameObject)so.FindProperty("behaviorRow").objectReferenceValue).GetComponent<RectTransform>();
+            float k = mobile ? 1.55f : 1f;
+
+            if (so.FindProperty("weaponRow").objectReferenceValue == null)
+            {
+                float rowHeight = mobile ? 110f : 80f;
+                float gap = mobile ? 16f : 15f;
+                selection.sizeDelta += new Vector2(0f, rowHeight + gap);
+                var row = MakePanel(selection, "Weapon", Vector2.zero, new Vector2(1f, 0f), new Vector2(0.5f, 0f),
+                                    new Vector2(0f, behavior.anchoredPosition.y + behavior.sizeDelta.y + gap),
+                                    new Vector2(behavior.sizeDelta.x, rowHeight), Color.clear);
+                var layout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
+                layout.spacing = 10f * k;
+                layout.childControlWidth = true;
+                layout.childControlHeight = true;
+                layout.childForceExpandWidth = true;
+                layout.childForceExpandHeight = true;
+
+                var template = MakeStretchButton(row, "Weapon Button Template", "Пулемёт +50\n<size=62%>против пехоты</size>",
+                                                 Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, ButtonColor);
+                template.GetComponentInChildren<TMP_Text>().fontSize = Mathf.RoundToInt(26 * k);
+                template.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
+
+                so.FindProperty("weaponRow").objectReferenceValue = row.gameObject;
+                so.FindProperty("weaponButtonTemplate").objectReferenceValue = template;
+            }
+
+            if (so.FindProperty("armouryPanel").objectReferenceValue == null)
+            {
+                var panel = MakePanel(selection, "Armoury", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 0f),
+                                      new Vector2(0f, 12f), new Vector2(0f, 100f), PanelColor);
+                var layout = panel.gameObject.AddComponent<VerticalLayoutGroup>();
+                int pad = Mathf.RoundToInt(14 * k);
+                layout.padding = new RectOffset(pad, pad, pad, pad);
+                layout.spacing = 8f * k;
+                layout.childControlWidth = true;
+                layout.childControlHeight = true;
+                layout.childForceExpandWidth = true;
+                layout.childForceExpandHeight = false;
+                panel.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+                var header = MakeLabel(panel, "Оружейная · открыто 0 из 2", Mathf.RoundToInt(32 * k), TextAlignmentOptions.MidlineLeft);
+                header.fontStyle = FontStyles.Bold;
+                header.gameObject.AddComponent<LayoutElement>().preferredHeight = 46f * k;
+
+                // Строка спецоружия: название и роль слева, кнопка исследования справа
+                var row = MakePanel(panel, "Armoury Row Template", Vector2.zero, Vector2.zero, new Vector2(0.5f, 0.5f),
+                                    Vector2.zero, Vector2.zero, new Color(1f, 1f, 1f, 0.06f));
+                row.GetComponent<Image>().raycastTarget = false;
+                row.gameObject.AddComponent<LayoutElement>().preferredHeight = 76f * k;
+                var labelArea = MakePanel(row, "Label", Vector2.zero, new Vector2(0.55f, 1f), new Vector2(0f, 0.5f),
+                                          Vector2.zero, Vector2.zero, Color.clear);
+                labelArea.offsetMin = Vector2.zero;
+                labelArea.offsetMax = Vector2.zero;
+                MakeLabel(labelArea, "Пулемёт\n<size=70%>против пехоты · отряд +50</size>", Mathf.RoundToInt(28 * k), TextAlignmentOptions.MidlineLeft);
+                var research = MakeStretchButton(row, "Research", "Изучить · 200", new Vector2(0.56f, 0.1f), new Vector2(1f, 0.9f),
+                                                 Vector2.zero, Vector2.zero, AccentColor);
+                research.GetComponentInChildren<TMP_Text>().fontSize = Mathf.RoundToInt(26 * k);
+
+                // «Изучить … вместо:» — когда открыто уже два: вопрос сверху, ответы снизу
+                var replace = MakePanel(panel, "Replace", Vector2.zero, Vector2.zero, new Vector2(0.5f, 0.5f),
+                                        Vector2.zero, Vector2.zero, new Color(0.72f, 0.52f, 0.16f, 0.25f));
+                replace.gameObject.AddComponent<LayoutElement>().preferredHeight = 128f * k;
+                var question = MakePanel(replace, "Label", new Vector2(0f, 0.55f), Vector2.one, new Vector2(0.5f, 0.5f),
+                                         Vector2.zero, Vector2.zero, Color.clear);
+                question.offsetMin = Vector2.zero;
+                question.offsetMax = Vector2.zero;
+                MakeLabel(question, "Изучить «Огнемёт» вместо:", Mathf.RoundToInt(28 * k), TextAlignmentOptions.MidlineLeft);
+                var option0 = MakeStretchButton(replace, "Option 0", "Пулемёт", new Vector2(0.02f, 0.06f), new Vector2(0.36f, 0.5f),
+                                                Vector2.zero, Vector2.zero, CancelColor);
+                var option1 = MakeStretchButton(replace, "Option 1", "Гранатомёт", new Vector2(0.38f, 0.06f), new Vector2(0.72f, 0.5f),
+                                                Vector2.zero, Vector2.zero, CancelColor);
+                var cancel = MakeStretchButton(replace, "Cancel", "Отмена", new Vector2(0.74f, 0.06f), new Vector2(0.98f, 0.5f),
+                                               Vector2.zero, Vector2.zero, ButtonColor);
+                foreach (var b in new[] { option0, option1, cancel })
+                    b.GetComponentInChildren<TMP_Text>().fontSize = Mathf.RoundToInt(26 * k);
+
+                so.FindProperty("armouryPanel").objectReferenceValue = panel.gameObject;
+                so.FindProperty("armouryHeader").objectReferenceValue = header;
+                so.FindProperty("armouryRowTemplate").objectReferenceValue = row;
+                so.FindProperty("armouryReplaceRow").objectReferenceValue = replace;
+            }
+
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         /// <summary>Дополнить уже существующий префаб значком постоянного найма (ручные правки сохраняются)</summary>

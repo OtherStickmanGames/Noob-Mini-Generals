@@ -27,6 +27,7 @@ namespace Generals
                 StructureType.Mine => Mine(team),
                 StructureType.Barracks => Barracks(team),
                 StructureType.ReinforcementPoint => ReinforcementPoint(team),
+                StructureType.Armoury => Armoury(team),
                 _ => Turret(team),
             });
         }
@@ -42,12 +43,13 @@ namespace Generals
             StructureType.Mine => Mine(team),
             StructureType.Barracks => Barracks(team),
             StructureType.ReinforcementPoint => ReinforcementPoint(team),
+            StructureType.Armoury => Armoury(team),
             _ => TurretBaseModel(team),
         };
 
         public static Mesh Builder(int team) => Get($"Builder_{team}", () => BuilderModel(team));
 
-        public static Mesh Infantry(int team) => Get($"Infantry_{team}", () => InfantryModel(team));
+        public static Mesh Infantry(int team, SquadWeapon weapon) => Get($"Infantry_{team}_{weapon}", () => InfantryModel(team, weapon));
 
         /// <summary>Флаг точки захвата; team = -1 — ничья</summary>
         public static Mesh Flag(int team) => Get($"Flag_{team}", () => FlagModel(team));
@@ -118,6 +120,30 @@ namespace Generals
             m.Box(0, 8, 0, 6, 1, 1, color);            // полосы цвета команды
             m.Box(0, 8, 5, 6, 1, 1, color);
             m.Box(2, 2, 2, 2, 8, 2, Metal);            // бур
+            return m;
+        }
+
+        // Оружейная: мастерская с крышей цвета команды, труба кузни, наковальня и стойка с оружием у входа
+        static Model Armoury(int team)
+        {
+            byte color = TeamColor(team), dark = TeamColorDark(team);
+            var m = new Model(10, 13, 12);
+            m.Box(0, 0, 0, 10, 1, 12, Stone);           // площадка
+            m.Box(0, 1, 0, 10, 5, 8, Wall);             // мастерская
+            // Плоская крыша с бортиком цвета команды
+            m.Box(0, 6, 0, 10, 1, 8, color);
+            m.Box(1, 7, 1, 8, 1, 6, dark);
+            m.Box(7, 7, 1, 2, 6, 2, Stone);             // труба кузни
+            m.Box(7, 12, 1, 2, 1, 2, dark);
+            m.Box(3, 1, 7, 4, 4, 1, dark);              // ворота (+z)
+            m.Box(1, 3, 7, 1, 1, 1, Metal);             // окна
+            m.Box(8, 3, 7, 1, 1, 1, Metal);
+            // Двор: наковальня и стойка со стволами
+            m.Box(1, 1, 9, 2, 1, 1, Stone);
+            m.Box(1, 2, 9, 3, 1, 1, Metal);
+            m.Box(6, 1, 10, 3, 1, 1, Wood);
+            for (int i = 0; i < 3; i++)
+                m.Box(6 + i, 2, 10, 1, 3, 1, i == 1 ? dark : Metal);
             return m;
         }
 
@@ -215,16 +241,44 @@ namespace Generals
         }
 
         // Смотрит в +z, винтовка у правого бока стволом вперёд
-        static Model InfantryModel(int team)
+        // Боец смотрит в +z; оружие у правого бока (x = 2..3). Спецоружие видно издалека по силуэту:
+        // пулемёт — толстый ствол с лентой, гранатомёт — труба на плече, огнемёт — баки на спине,
+        // снайперка — длинный ствол с прицелом
+        static Model InfantryModel(int team, SquadWeapon weapon)
         {
             byte color = TeamColor(team), dark = TeamColorDark(team);
-            var m = new Model(3, 8, 4);
-            m.Box(0, 0, 1, 1, 3, 1, dark);             // ноги
-            m.Box(2, 0, 1, 1, 3, 1, dark);
-            m.Box(0, 3, 0, 3, 3, 3, color);            // корпус
-            m.Box(1, 6, 1, 1, 1, 1, Sand);             // голова
-            m.Box(0, 7, 0, 3, 1, 3, dark);             // каска
-            m.Box(2, 4, 1, 1, 1, 3, Metal);            // винтовка
+            var m = new Model(4, 8, 6);
+            m.Box(0, 0, 2, 1, 3, 1, dark);             // ноги
+            m.Box(2, 0, 2, 1, 3, 1, dark);
+            m.Box(0, 3, 1, 3, 3, 3, color);            // корпус
+            m.Box(1, 6, 2, 1, 1, 1, Sand);             // голова
+            m.Box(0, 7, 1, 3, 1, 3, dark);             // каска
+
+            switch (weapon)
+            {
+                case SquadWeapon.MachineGun:
+                    m.Box(2, 3, 2, 1, 2, 4, Metal);    // толстый ствол
+                    m.Box(3, 3, 2, 1, 2, 2, GoldOre);  // короб с лентой
+                    break;
+                case SquadWeapon.GrenadeLauncher:
+                    m.Box(3, 6, 0, 1, 1, 6, dark);     // труба на плече
+                    m.Box(3, 6, 5, 1, 1, 1, Metal);
+                    m.Box(3, 5, 2, 1, 1, 1, Metal);    // рукоять
+                    break;
+                case SquadWeapon.Flamethrower:
+                    m.Box(0, 3, 0, 1, 3, 1, GoldOre);  // баки на спине
+                    m.Box(2, 3, 0, 1, 3, 1, GoldOre);
+                    m.Box(2, 4, 2, 1, 1, 3, Metal);    // брандспойт
+                    m.Box(2, 4, 5, 1, 1, 1, dark);
+                    break;
+                case SquadWeapon.Sniper:
+                    m.Box(2, 5, 2, 1, 1, 4, Metal);    // длинный ствол
+                    m.Box(2, 6, 3, 1, 1, 1, dark);     // прицел
+                    break;
+                default:
+                    m.Box(2, 4, 2, 1, 1, 3, Metal);    // винтовка
+                    break;
+            }
             return m;
         }
 

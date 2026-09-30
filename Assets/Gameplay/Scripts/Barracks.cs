@@ -5,14 +5,18 @@ namespace Generals
 {
     /// <summary>
     /// Казармы: очередь найма отрядов пехоты (отряд — UnitCatalog.SquadSize бойцов сразу, как в
-    /// Dawn of War) и поведение отрядов («Оборона» / «Атака»). Поведение задаётся на казармы и сразу
-    /// действует на все их отряды, включая уже нанятые. Висит на здании казарм рядом со Structure.
+    /// Dawn of War), вооружение новых отрядов (винтовки или открытое в оружейной спецоружие — его
+    /// несут WeaponCatalog.SpecialsPerSquad бойцов, отряд дороже) и поведение отрядов («Оборона» /
+    /// «Атака»). Поведение задаётся на казармы и сразу действует на все их отряды, включая уже нанятые.
+    /// Висит на здании казарм рядом со Structure.
     /// </summary>
     public class Barracks : MonoBehaviour
     {
         public Structure Structure { get; private set; }
         public BarracksBehavior Behavior { get; private set; } = BarracksBehavior.Defend;
-        public int Queued { get; private set; }
+        /// <summary>С каким вооружением выходят новые отряды</summary>
+        public SquadWeapon Weapon { get; private set; } = SquadWeapon.Rifle;
+        public int Queued => queue.Count;
         /// <summary>Прогресс найма текущего отряда, 0..1</summary>
         public float Progress { get; private set; }
         public readonly List<Squad> Squads = new();
@@ -22,7 +26,8 @@ namespace Generals
         /// </summary>
         public bool Repeat { get; private set; }
 
-        public void SetRepeat(bool on) => Repeat = on;
+        // Очередь: вооружение каждого заказанного отряда — какое было выбрано и оплачено при заказе
+        readonly List<SquadWeapon> queue = new();
 
         public Faction Faction => Structure.Faction;
 
@@ -43,6 +48,15 @@ namespace Generals
             Structure = structure;
         }
 
+        public void SetRepeat(bool on) => Repeat = on;
+
+        /// <summary>Выбрать вооружение новых отрядов (только открытое; уже заказанные не меняются)</summary>
+        public void SetWeapon(SquadWeapon weapon)
+        {
+            if (Faction.Knows(weapon))
+                Weapon = weapon;
+        }
+
         public bool TryHire(out string reason)
         {
             if (MatchManager.Instance.IsOver)
@@ -60,14 +74,15 @@ namespace Generals
                 reason = "Очередь найма заполнена";
                 return false;
             }
-            if (!Faction.CanAfford(UnitCatalog.SquadCost, 0))
+            int cost = WeaponCatalog.SquadCost(Weapon);
+            if (!Faction.CanAfford(cost, 0))
             {
                 reason = "Не хватает ресурсов";
                 return false;
             }
 
-            Faction.Pay(UnitCatalog.SquadCost, 0);
-            Queued++;
+            Faction.Pay(cost, 0);
+            queue.Add(Weapon);
             reason = null;
             return true;
         }
@@ -87,11 +102,8 @@ namespace Generals
 
             // Постоянный найм: очередь опустела — заказать следующий, если хватает ресурсов
             if (Repeat && Queued == 0 && Structure.IsBuilt && !MatchManager.Instance.IsOver &&
-                Faction.CanAfford(UnitCatalog.SquadCost, 0))
-            {
-                Faction.Pay(UnitCatalog.SquadCost, 0);
-                Queued = 1;
-            }
+                Faction.CanAfford(WeaponCatalog.SquadCost(Weapon), 0))
+                TryHire(out _);
 
             if (!Structure.IsBuilt || Queued == 0)
                 return;
@@ -101,7 +113,7 @@ namespace Generals
                 return;
 
             // Выйти негде (NavMesh ещё не готов) — ждём с полным прогрессом
-            var squad = MatchManager.Instance.SpawnSquad(Faction, this, Behavior);
+            var squad = MatchManager.Instance.SpawnSquad(Faction, this, Behavior, queue[0]);
             if (squad == null)
             {
                 Progress = 1f;
@@ -109,7 +121,7 @@ namespace Generals
             }
 
             Progress = 0f;
-            Queued--;
+            queue.RemoveAt(0);
         }
 
         /// <summary>
@@ -118,8 +130,9 @@ namespace Generals
         /// </summary>
         public void OnDestroyed()
         {
-            Faction.baseResource += Queued * UnitCatalog.SquadCost;
-            Queued = 0;
+            foreach (var weapon in queue)
+                Faction.baseResource += WeaponCatalog.SquadCost(weapon);
+            queue.Clear();
             foreach (var squad in Squads)
                 squad.DetachFromBarracks(Behavior);
             Squads.Clear();

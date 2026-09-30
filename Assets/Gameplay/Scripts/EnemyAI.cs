@@ -51,6 +51,7 @@ namespace Generals
             StructureType.Barracks,
             StructureType.Turret,
             StructureType.ReinforcementPoint,
+            StructureType.Armoury,
             null,
             StructureType.Extractor,
             StructureType.Turret,
@@ -123,6 +124,7 @@ namespace Generals
             }
 
             ReinforceSquads(reserve);
+            Research(reserve);
             HireInfantry(reserve);
             UpdateWaves();
         }
@@ -200,6 +202,27 @@ namespace Generals
             }
         }
 
+        // Оружейная: изучить недостающее до двух случайное спецоружие (без переучивания)
+        void Research(float reserve)
+        {
+            if (me.researching.HasValue || me.knownWeapons.Count >= WeaponCatalog.MaxKnownSpecials)
+                return;
+            Armoury armoury = null;
+            foreach (var s in me.structures)
+                if (s != null && s.IsBuilt && s.Armoury != null)
+                    armoury = s.Armoury;
+            if (armoury == null)
+                return;
+
+            var options = new List<SpecialWeapon>();
+            foreach (var special in WeaponCatalog.Specials)
+                if (!me.Knows(special.id))
+                    options.Add(special);
+            var pick = options[Random.Range(0, options.Count)];
+            if (me.baseResource - pick.researchCost >= reserve)
+                armoury.TryResearch(pick.id, null, out _);
+        }
+
         void HireInfantry(float reserve)
         {
             foreach (var s in me.structures)
@@ -207,7 +230,14 @@ namespace Generals
                 var barracks = s != null ? s.Barracks : null;
                 if (barracks == null || !s.IsBuilt || barracks.Queued >= settings.barracksQueue)
                     continue;
-                if (me.baseResource - UnitCatalog.SquadCost < reserve)
+
+                // Открыто спецоружие — чаще отряды с ним, иногда простые
+                if (me.knownWeapons.Count > 0 && Random.value < 0.7f)
+                    barracks.SetWeapon(me.knownWeapons[Random.Range(0, me.knownWeapons.Count)]);
+                else
+                    barracks.SetWeapon(SquadWeapon.Rifle);
+
+                if (me.baseResource - WeaponCatalog.SquadCost(barracks.Weapon) < reserve)
                     return;
                 barracks.TryHire(out _);
             }

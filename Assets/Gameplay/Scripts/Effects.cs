@@ -71,7 +71,7 @@ namespace Generals
             smokeColor.enabled = true;
             smokeColor.color = fade;
 
-            flash = CreateSystem("Вспышки", flashMaterial, 600, 0f);
+            flash = CreateSystem("Вспышки", flashMaterial, 1500, 0f);
             SetSizeOverLifetime(flash, new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(1f, 0f)));
         }
 
@@ -142,6 +142,35 @@ namespace Generals
             for (int i = 0; i < 8; i++)
                 EmitSmoke(point + Random.insideUnitSphere * r * 0.4f, Random.onUnitSphere * r * 0.8f + Vector3.up * 0.8f,
                           Random.Range(0.35f, 0.6f) * r, Random.Range(1.2f, 2.2f), 0.7f);
+        }
+
+        static readonly Color FlameInner = new(1f, 0.85f, 0.35f, 1f);
+        static readonly Color FlameOuter = new(1f, 0.42f, 0.12f, 1f);
+
+        /// <summary>
+        /// Струя огнемёта: светящиеся кубики пламени вдоль полёта (у начала — жёлтые и мелкие, к концу —
+        /// оранжевые и крупные), в конце немного дыма. t — пройденная доля пути 0..1
+        /// </summary>
+        public void FlameTrail(Vector3 position, Vector3 direction, float t)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                var velocity = Combat.RandomInCone(direction, 18f) * Random.Range(1f, 3f) + Vector3.up * Random.Range(0.3f, 1.2f);
+                Emit(flash, position + Random.insideUnitSphere * (0.08f + 0.25f * t), velocity,
+                     Mathf.Lerp(0.12f, 0.34f, t) * Random.Range(0.8f, 1.2f), Random.Range(0.12f, 0.25f),
+                     Color.Lerp(FlameInner, FlameOuter, t + Random.Range(-0.2f, 0.2f)));
+            }
+            if (t > 0.6f && Random.value < 0.25f)
+                EmitSmoke(position, Vector3.up * 0.8f, Random.Range(0.2f, 0.32f), Random.Range(0.6f, 1f), 0.4f);
+        }
+
+        /// <summary>Огонь ударил в цель или землю: клуб пламени и дым</summary>
+        public void FlameBurst(Vector3 point)
+        {
+            for (int i = 0; i < 6; i++)
+                Emit(flash, point + Random.insideUnitSphere * 0.3f, Random.insideUnitSphere * 1.5f + Vector3.up * 1.5f,
+                     Random.Range(0.2f, 0.4f), Random.Range(0.15f, 0.3f), Color.Lerp(FlameInner, FlameOuter, Random.value));
+            EmitSmoke(point, Vector3.up * 1f, Random.Range(0.25f, 0.4f), Random.Range(0.8f, 1.3f), 0.5f);
         }
 
         /// <summary>Дымный след снаряда турели</summary>

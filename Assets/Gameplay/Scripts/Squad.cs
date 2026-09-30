@@ -39,6 +39,23 @@ namespace Generals
         public readonly int Number;
         /// <summary>Сколько бойцов уже заказано в пункте подкрепления и ещё не вышло</summary>
         public int PendingReinforcements;
+        /// <summary>Из них — со спецоружием</summary>
+        public int PendingSpecials;
+        /// <summary>Спецоружие отряда (выбрано в казармах при найме); Rifle — у всех винтовки</summary>
+        public readonly SquadWeapon Weapon;
+
+        /// <summary>Сколько живых бойцов со спецоружием</summary>
+        public int SpecialCount
+        {
+            get
+            {
+                int n = 0;
+                foreach (var m in Members)
+                    if (m != null && m.WeaponType != SquadWeapon.Rifle)
+                        n++;
+                return n;
+            }
+        }
         public Barracks Barracks { get; private set; }
         public readonly List<InfantryUnit> Members = new();
         public BarracksBehavior Behavior => Barracks != null ? Barracks.Behavior : ownBehavior;
@@ -66,9 +83,10 @@ namespace Generals
         Quaternion facing = Quaternion.identity;
         float thinkTimer;
 
-        public Squad(Faction faction, Barracks barracks, BarracksBehavior behavior)
+        public Squad(Faction faction, Barracks barracks, BarracksBehavior behavior, SquadWeapon weapon)
         {
             Faction = faction;
+            Weapon = weapon;
             Number = ++faction.squadsCreated;
             Barracks = barracks;
             ownBehavior = behavior;

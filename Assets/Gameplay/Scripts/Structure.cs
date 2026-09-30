@@ -31,6 +31,8 @@ namespace Generals
         public Turret Turret { get; private set; }
         /// <summary>Пополнение отрядов — только у пункта подкрепления</summary>
         public ReinforcementPoint ReinforcementPoint { get; private set; }
+        /// <summary>Исследования спецоружия — только у оружейной</summary>
+        public Armoury Armoury { get; private set; }
 
         /// <summary>Высота модели здания, м</summary>
         public float Height => modelHeight;
@@ -104,6 +106,11 @@ namespace Generals
             {
                 ReinforcementPoint = gameObject.AddComponent<ReinforcementPoint>();
                 ReinforcementPoint.Init(this);
+            }
+            else if (def.type == StructureType.Armoury)
+            {
+                Armoury = gameObject.AddComponent<Armoury>();
+                Armoury.Init(this);
             }
 
             if (built)

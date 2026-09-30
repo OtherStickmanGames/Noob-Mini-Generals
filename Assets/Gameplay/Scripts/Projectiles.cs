@@ -96,10 +96,15 @@ namespace Generals
                         effects.Trail(shot.position - shot.direction * ShellLength);
                     }
                 }
+                else if (shot.def.kind == ProjectileKind.Flame)
+                {
+                    // Струя огня видна частицами (сам «снаряд» не рисуется)
+                    effects.FlameTrail(shot.position, shot.direction, shot.traveled / shot.maxDistance);
+                }
 
                 if (shot.traveled >= shot.maxDistance)
                 {
-                    // Снаряд турели на излёте рвётся в воздухе, пуля просто теряется
+                    // Снаряд на излёте рвётся в воздухе, огонь гаснет, пуля просто теряется
                     if (shot.def.kind == ProjectileKind.Shell)
                         Explode(shot, shot.position, Vector3.up, null, false);
                     RemoveAt(i);
@@ -157,6 +162,16 @@ namespace Generals
                 return;
             }
 
+            if (shot.def.kind == ProjectileKind.Flame)
+            {
+                // Огонь: вспышка пламени, урон всем рядом, без воронки
+                effects.FlameBurst(point);
+                if (target != null)
+                    target.TakeDamage(Combat.DamageTo(shot.def, target, shot.def.damage), point, shot.direction);
+                Combat.Splash(point, shot.def, shot.owner, target);
+                return;
+            }
+
             if (target != null)
             {
                 // Здание и стена крошатся сами — только искры; боец — искры и крошки его цвета
@@ -164,7 +179,7 @@ namespace Generals
                     effects.HitSparks(point, normal, VoxelBlocks.SlotWallSide, false);
                 else
                     effects.HitSparks(point, normal, Effects.TeamSlot(target.Faction.team));
-                target.TakeDamage(shot.def.damage, point, shot.direction);
+                target.TakeDamage(Combat.DamageTo(shot.def, target, shot.def.damage), point, shot.direction);
             }
             else if (terrain)
             {
@@ -186,9 +201,9 @@ namespace Generals
             effects.Explosion(point, shot.def.splashRadius);
 
             if (target != null)
-                target.TakeDamage(shot.def.damage, point, shot.direction);
+                target.TakeDamage(Combat.DamageTo(shot.def, target, shot.def.damage), point, shot.direction);
             if (shot.def.splashRadius > 0f)
-                Combat.Splash(point, shot.def.splashRadius, shot.def.damage, shot.owner, target);
+                Combat.Splash(point, shot.def, shot.owner, target);
 
             // Воронка — от попадания в землю; здание и участок стены крошатся сами (урон выше),
             // своя стена не страдает
@@ -225,7 +240,7 @@ namespace Generals
                         bullets = 0;
                     }
                 }
-                else
+                else if (shot.def.kind == ProjectileKind.Shell)
                 {
                     shellMatrices[shells++] = Matrix4x4.TRS(shot.position, rotation, new Vector3(ShellSize, ShellSize, ShellLength));
                     if (shells == BatchSize)

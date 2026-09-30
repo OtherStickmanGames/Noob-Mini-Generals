@@ -498,6 +498,8 @@ namespace Generals
                 structure.Barracks.OnDestroyed();
             if (structure.ReinforcementPoint != null)
                 structure.ReinforcementPoint.OnDestroyed();
+            if (structure.Armoury != null)
+                structure.Armoury.OnDestroyed();
             if (structure.AssignedBuilder != null)
                 structure.AssignedBuilder = null;
 
@@ -628,14 +630,14 @@ namespace Generals
         /// <summary>
         /// Отряд выходит из казарм со стороны своих ворот, строем. null — выйти негде (NavMesh не готов)
         /// </summary>
-        public Squad SpawnSquad(Faction faction, Barracks barracks, BarracksBehavior behavior)
+        public Squad SpawnSquad(Faction faction, Barracks barracks, BarracksBehavior behavior, SquadWeapon weapon)
         {
             var gate = GateOf(faction);
             var from = barracks != null ? barracks.Structure.ClosestEdgePoint(gate, 1.5f) : gate;
-            return SpawnSquadAt(faction, barracks, behavior, from);
+            return SpawnSquadAt(faction, barracks, behavior, weapon, from);
         }
 
-        Squad SpawnSquadAt(Faction faction, Barracks barracks, BarracksBehavior behavior, Vector3 point)
+        Squad SpawnSquadAt(Faction faction, Barracks barracks, BarracksBehavior behavior, SquadWeapon weapon, Vector3 point)
         {
             if (!navMesh.HasNavMesh || !NavMesh.SamplePosition(point, out var hit, 4f, NavMesh.AllAreas))
                 return null;
@@ -643,19 +645,21 @@ namespace Generals
             var look = GateOf(faction) - hit.position;
             look.y = 0f;
             var rotation = look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity;
-            var squad = new Squad(faction, barracks, behavior);
+            var squad = new Squad(faction, barracks, behavior, weapon);
 
             for (int i = 0; i < UnitCatalog.SquadSize; i++)
             {
                 // Бойцы кучкой, каждый — на ближайшую к своему месту точку NavMesh
                 var offset = rotation * new Vector3((i % 3 - 1) * 0.9f, 0f, -(i / 3) * 0.9f);
                 var position = NavMesh.SamplePosition(hit.position + offset, out var spot, 1.5f, NavMesh.AllAreas) ? spot.position : hit.position;
+                // Спецоружие — у последних SpecialsPerSquad бойцов (задний ряд строя), остальные с винтовками
+                bool special = weapon != SquadWeapon.Rifle && i >= UnitCatalog.SquadSize - WeaponCatalog.SpecialsPerSquad;
 
                 var go = new GameObject();
                 go.transform.SetPositionAndRotation(position, rotation);
                 spawned.Add(go);
                 var unit = go.AddComponent<InfantryUnit>();
-                unit.Init(faction, squad, arena.Material);
+                unit.Init(faction, squad, arena.Material, special ? weapon : SquadWeapon.Rifle);
                 faction.units.Add(unit);
                 squad.Members.Add(unit);
             }
@@ -673,7 +677,7 @@ namespace Generals
         /// Боец пополнения выходит из пункта подкрепления со стороны отряда и сразу становится его
         /// бойцом (побежит на своё место в строю). false — выйти негде (NavMesh не готов)
         /// </summary>
-        public bool SpawnReinforcement(ReinforcementPoint point, Squad squad)
+        public bool SpawnReinforcement(ReinforcementPoint point, Squad squad, SquadWeapon weapon)
         {
             var from = point.Structure.ClosestEdgePoint(squad.Center, 1.2f);
             if (!navMesh.HasNavMesh || !NavMesh.SamplePosition(from, out var hit, 3f, NavMesh.AllAreas))
@@ -685,7 +689,7 @@ namespace Generals
             go.transform.SetPositionAndRotation(hit.position, look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity);
             spawned.Add(go);
             var unit = go.AddComponent<InfantryUnit>();
-            unit.Init(squad.Faction, squad, arena.Material);
+            unit.Init(squad.Faction, squad, arena.Material, weapon);
             squad.Faction.units.Add(unit);
             squad.Members.Add(unit);
             squad.Faction.unitsHired++;
@@ -746,7 +750,7 @@ namespace Generals
             var outward = gate - arena.BaseTwo;
             outward.y = 0f;
             outward.Normalize();
-            SpawnSquadAt(Enemy, null, behavior, gate + outward * 3f);
+            SpawnSquadAt(Enemy, null, behavior, SquadWeapon.Rifle, gate + outward * 3f);
         }
 
         /// <summary>Отдать игроку ближайшую к точке точку захвата (пока нет боевых юнитов)</summary>

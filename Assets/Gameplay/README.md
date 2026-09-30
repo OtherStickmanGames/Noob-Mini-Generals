@@ -58,7 +58,8 @@
 - `Structure.cs` — здание: стройка, доход, вырез в NavMesh.
 - `BuilderUnit.cs` — строитель, сам находит работу.
 - `UnitCatalog.cs`, `Barracks.cs`, `Squad.cs`, `InfantryUnit.cs` — отряды пехоты, казармы и поведение;
-  `ReinforcementPoint.cs` — пункт подкрепления (пополнение отрядов кнопкой в его панели).
+  `ReinforcementPoint.cs` — пункт подкрепления (пополнение отрядов кнопкой в его панели);
+  `Armoury.cs` — оружейная (спецоружие «2 из 4»), вооружение отрядов выбирается в казармах.
 - `WeaponCatalog.cs`, `Weapon.cs`, `Combat.cs` (`IDamageable`), `Projectiles.cs`, `Turret.cs` — оружие,
   снаряды, урон, турель. `Effects.cs` + шейдер `Resources/Effect.shader` — вспышки, обломки, дым.
 - `DestructibleModel.cs` — здание крошится по вокселям; `WallSegment.cs` — участок стены как цель.

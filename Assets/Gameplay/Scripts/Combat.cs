@@ -188,8 +188,13 @@ namespace Generals
         }
 
         /// <summary>Урон по площади врагам owner: в центре полный, к краю — 40%</summary>
-        public static void Splash(Vector3 center, float radius, float damage, Faction owner, IDamageable skip)
+        /// <summary>Урон оружия по цели: по зданиям и стенам — с множителем оружия</summary>
+        public static float DamageTo(WeaponDef def, IDamageable target, float damage) =>
+            target is IAreaTarget ? damage * def.structureDamage : damage;
+
+        public static void Splash(Vector3 center, WeaponDef def, Faction owner, IDamageable skip)
         {
+            float radius = def.splashRadius;
             var enemy = MatchManager.Instance.GetFaction(1 - owner.team);
             splashTargets.Clear();
             foreach (var u in enemy.units)
@@ -212,7 +217,7 @@ namespace Generals
                 var point = area != null ? area.ClosestSurfacePoint(center) : t.transform.position;
                 // Урон может убить цель — проверяем, жива ли она ещё (здание могло уже рухнуть)
                 if (IsAlive(t))
-                    t.TakeDamage(damage * Mathf.Lerp(1f, 0.4f, d / radius), point, point - center);
+                    t.TakeDamage(DamageTo(def, t, def.damage) * Mathf.Lerp(1f, 0.4f, d / radius), point, point - center);
             }
             splashTargets.Clear();
         }

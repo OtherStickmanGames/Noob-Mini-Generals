@@ -29,6 +29,8 @@ namespace Generals
         public Vector3 Velocity => agent != null && agent.enabled ? agent.velocity : Vector3.zero;
 
         public BarracksBehavior Behavior => Squad.Behavior;
+        /// <summary>Оружие бойца: винтовка или спецоружие отряда</summary>
+        public SquadWeapon WeaponType { get; private set; }
 
         /// <summary>По кому стреляет: вражеский боец или постройка; null — ни по кому</summary>
         public IDamageable Target { get; private set; }
@@ -50,15 +52,23 @@ namespace Generals
 
         static readonly List<(float distance, InfantryUnit unit)> nearby = new();
 
-        public void Init(Faction faction, Squad squad, Material material)
+        public void Init(Faction faction, Squad squad, Material material, SquadWeapon weaponType)
         {
             Faction = faction;
             Squad = squad;
+            WeaponType = weaponType;
             Health = UnitCatalog.InfantryHealth;
-            weapon = new Weapon(WeaponCatalog.Rifle);
-            name = $"{UnitCatalog.InfantryName} {faction.team}";
+            weapon = new Weapon(WeaponCatalog.Def(weaponType));
+            name = $"{UnitCatalog.InfantryName} {faction.team} ({WeaponCatalog.Def(weaponType).name})";
+            // Гранатомёт — с плеча, снайперка — выше груди
+            muzzleOffset = weaponType switch
+            {
+                SquadWeapon.GrenadeLauncher => new Vector3(0.4f, 1.62f, 0.9f),
+                SquadWeapon.Sniper => new Vector3(0.15f, 1.35f, 0.95f),
+                _ => new Vector3(0.15f, ChestHeight, 0.6f),
+            };
 
-            var mesh = VoxelModels.Infantry(faction.team);
+            var mesh = VoxelModels.Infantry(faction.team, weaponType);
             var size = VoxelModels.Size(mesh);
             var model = new GameObject("Model");
             model.transform.SetParent(transform, false);
@@ -105,7 +115,8 @@ namespace Generals
             blockedChecks = 0;
         }
 
-        Vector3 Muzzle => transform.position + transform.rotation * new Vector3(0.15f, ChestHeight, 0.5f);
+        Vector3 Muzzle => transform.position + transform.rotation * muzzleOffset;
+        Vector3 muzzleOffset;
 
         void Update()
         {
@@ -154,6 +165,14 @@ namespace Generals
             {
                 case SquadOrder.AttackArea when Combat.IsAlive(Squad.AreaTarget):
                     EngageArea(Squad.AreaTarget);
+                    break;
+
+                case SquadOrder.EngageUnits when weapon.Def.range < UnitCatalog.InfantryRange && Combat.IsAlive(Squad.Threat):
+                    // Короткое оружие (огнемёт) из строя на подходе не достаёт — идёт прямо на врага
+                    ReleaseSlot();
+                    Target = null;
+                    Firing = false;
+                    MoveTo(Squad.Threat.transform.position);
                     break;
 
                 default:

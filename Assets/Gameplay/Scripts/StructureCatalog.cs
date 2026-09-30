@@ -11,6 +11,7 @@ namespace Generals
         Barracks,
         Turret,
         ReinforcementPoint,
+        Armoury,
     }
 
     public enum PlacementRule
@@ -109,6 +110,18 @@ namespace Generals
                 costBase = 150,
                 buildTime = 20f,
                 health = 900f,
+                rule = PlacementRule.InsideWalls,
+                buildable = true,
+            },
+            // Исследования спецоружия для отрядов (вариант «2 из 4»)
+            [StructureType.Armoury] = new StructureDef
+            {
+                type = StructureType.Armoury,
+                name = "Оружейная",
+                footprint = new int2(5, 6),
+                costBase = 200,
+                buildTime = 25f,
+                health = 1000f,
                 rule = PlacementRule.InsideWalls,
                 buildable = true,
             },

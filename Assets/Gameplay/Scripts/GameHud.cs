@@ -54,6 +54,23 @@ namespace Generals
         [SerializeField] Button defendButton;
         [SerializeField] Button attackButton;
 
+        [Header("Вооружение (казармы)")]
+        [Tooltip("Строка выбора вооружения новых отрядов — над «Оборона / Атака»")]
+        [SerializeField] GameObject weaponRow;
+        [Tooltip("Образец кнопки вооружения: копируется на «Винтовки» и каждое открытое спецоружие")]
+        [SerializeField] Button weaponButtonTemplate;
+        [SerializeField] Color weaponSelectedColor = new(0.24f, 0.52f, 0.28f, 1f);
+
+        [Header("Оружейная")]
+        [Tooltip("Список спецоружия над панелью здания — только у своей оружейной")]
+        [SerializeField] GameObject armouryPanel;
+        [SerializeField] TMP_Text armouryHeader;
+        [Tooltip("Образец строки оружия: дочерние Label (название, роль, цены) и Research (кнопка)")]
+        [SerializeField] RectTransform armouryRowTemplate;
+        [Tooltip("Строка «Изучить … вместо:» с кнопками Option 0, Option 1 и Cancel — когда открыто уже два")]
+        [SerializeField] RectTransform armouryReplaceRow;
+        [SerializeField] Color knownWeaponRowColor = new(0.24f, 0.52f, 0.28f, 0.35f);
+
         [Header("Пункт подкрепления")]
         [Tooltip("Список отрядов над панелью здания — только у своего пункта подкрепления")]
         [SerializeField] GameObject reinforcePanel;
@@ -211,6 +228,17 @@ namespace Generals
             healthBarTemplate.gameObject.SetActive(false);
             reinforcePanel.SetActive(false);
             reinforceRowTemplate.gameObject.SetActive(false);
+            weaponButtonTemplate.gameObject.SetActive(false);
+            armouryPanel.SetActive(false);
+            armouryRowTemplate.gameObject.SetActive(false);
+            armouryReplaceRow.gameObject.SetActive(false);
+            armouryRowColor = armouryRowTemplate.GetComponent<Image>().color;
+            for (int k = 0; k < WeaponCatalog.MaxKnownSpecials; k++)
+            {
+                int option = k;
+                armouryReplaceRow.Find("Option " + k).GetComponent<Button>().onClick.AddListener(() => ReplaceClicked(option));
+            }
+            armouryReplaceRow.Find("Cancel").GetComponent<Button>().onClick.AddListener(() => pendingResearch = null);
 
             newMatchButton.onClick.AddListener(() => StartCoroutine(NewMatchRoutine()));
             lookAroundButton.onClick.AddListener(() =>
@@ -882,6 +910,8 @@ namespace Generals
             bool own = selected.Faction == Player;
             var reinforcement = own ? selected.ReinforcementPoint : null;
             UpdateReinforcePanel(reinforcement);
+            var armoury = own ? selected.Armoury : null;
+            UpdateArmouryPanel(armoury);
             // Прочность — справа от названия, цветом стороны
             var hpColor = ColorUtility.ToHtmlStringRGB(own ? ownHealthColor : enemyHealthColor);
             selectionTitle.text = (own ? selected.Def.name : $"{selected.Def.name} (противник)") +
@@ -893,9 +923,11 @@ namespace Generals
             // Найм: у главного здания — строители, у казарм — пехота
             bool canHire = isHq || barracks != null;
             hireButton.gameObject.SetActive(canHire);
-            // Полоса — прогресс найма; у пункта подкрепления — выход очередного бойца
-            hireProgressFill.transform.parent.gameObject.SetActive(canHire || reinforcement != null);
-            SetBehaviorRowVisible(barracks != null);
+            // Полоса — прогресс найма; у пункта подкрепления — выход очередного бойца, у оружейной — исследование
+            hireProgressFill.transform.parent.gameObject.SetActive(canHire || reinforcement != null || armoury != null);
+            SetBarracksRowsVisible(barracks != null);
+            if (barracks != null)
+                UpdateWeaponRow(barracks);
             // Постоянный найм — кнопка другого цвета (переключается даже без денег: закажет, когда появятся)
             bool repeat = barracks != null && barracks.Repeat;
             hireButton.image.color = repeat ? repeatHireColor : hireButtonColor;
@@ -907,7 +939,7 @@ namespace Generals
                 hireButton.interactable = false;
                 SetHireProgress(0f);
                 if (barracks != null)
-                    SetButtonText(hireButton, HireSquadText(repeat));
+                    SetButtonText(hireButton, HireSquadText(repeat, barracks.Weapon));
             }
             else if (isHq)
             {
@@ -920,9 +952,9 @@ namespace Generals
             }
             else if (barracks != null)
             {
-                SetButtonText(hireButton, HireSquadText(repeat));
+                SetButtonText(hireButton, HireSquadText(repeat, barracks.Weapon));
                 hireButton.interactable = barracks.Queued < UnitCatalog.BarracksQueueLimit &&
-                                          Player.CanAfford(UnitCatalog.SquadCost, 0);
+                                          Player.CanAfford(WeaponCatalog.SquadCost(barracks.Weapon), 0);
                 SetHireProgress(barracks.Queued > 0 ? barracks.Progress : 0f);
 
                 string behavior = barracks.Behavior == BarracksBehavior.Defend
@@ -946,7 +978,15 @@ namespace Generals
                 SetHireProgress(reinforcement.Queued > 0 ? reinforcement.Progress : 0f);
                 selectionInfo.text = reinforcement.Queued > 0
                     ? $"Пополнение: в очереди бойцов {reinforcement.Queued}"
-                    : $"Пополняет отряды: {UnitCatalog.ReinforceCost} за бойца";
+                    : $"Пополняет отряды: {UnitCatalog.ReinforceCost} за бойца, спецбоец дороже";
+            }
+            else if (armoury != null)
+            {
+                SetHireProgress(armoury.Researching.HasValue ? armoury.Progress : 0f);
+                selectionInfo.text = armoury.Researching.HasValue
+                    ? $"Изучается: {WeaponCatalog.Name(armoury.Researching.Value)}" +
+                      (armoury.Replacing.HasValue ? $"\nЗатем забудется: {WeaponCatalog.Name(armoury.Replacing.Value)}" : "")
+                    : $"Спецоружие для отрядов: открыто {Player.knownWeapons.Count} из {WeaponCatalog.MaxKnownSpecials}";
             }
             else if (selected.Turret != null)
             {
@@ -972,12 +1012,13 @@ namespace Generals
         }
 
         // Кнопка найма отряда: вторая строка мелко — как включить или выключить постоянный найм
-        string HireSquadText(bool repeat)
+        string HireSquadText(bool repeat, SquadWeapon weapon)
         {
             string how = layout == HudLayout.Mobile ? "Долгое нажатие" : "ПКМ";
+            int cost = WeaponCatalog.SquadCost(weapon);
             return repeat
-                ? $"Нанимать постоянно · {UnitCatalog.SquadCost}\n<size=58%>{how} — выключить</size>"
-                : $"Нанять отряд ({UnitCatalog.SquadSize}) · {UnitCatalog.SquadCost}\n<size=58%>{how} — нанимать постоянно</size>";
+                ? $"Нанимать постоянно · {cost}\n<size=58%>{how} — выключить</size>"
+                : $"Нанять отряд ({UnitCatalog.SquadSize}) · {cost}\n<size=58%>{how} — нанимать постоянно</size>";
         }
 
         ButtonPressExtras hirePressExtras;
@@ -1047,14 +1088,17 @@ namespace Generals
                 row.squad = squad;
                 string mode = squad.Behavior == BarracksBehavior.Defend ? "оборона" : "атака";
                 string coming = squad.PendingReinforcements > 0 ? $"  <color=#9fd49f>+{squad.PendingReinforcements} в пути</color>" : "";
-                row.label.text = $"Отряд {squad.Number} · {mode} · {squad.Members.Count}/{UnitCatalog.SquadSize}{coming}";
+                // Спецоружие отряда — сколько его носителей живо (и забыто ли оно — тогда их не восстановить)
+                string special = squad.Weapon == SquadWeapon.Rifle ? ""
+                    : $" · {WeaponCatalog.Name(squad.Weapon).ToLower()} {squad.SpecialCount}/{WeaponCatalog.SpecialsPerSquad}" +
+                      (Player.Knows(squad.Weapon) ? "" : " <color=#d9a38a>(забыто)</color>");
+                row.label.text = $"Отряд {squad.Number} · {mode}\n" +
+                                 $"<size=78%>бойцов {squad.Members.Count}/{UnitCatalog.SquadSize}{special}{coming}</size>";
 
                 int missing = ReinforcementPoint.Missing(squad);
-                row.buttonText.text = missing > 0
-                    ? $"Пополнить +{missing} · {missing * UnitCatalog.ReinforceCost}"
-                    : "Полный";
-                row.button.interactable = missing > 0 && point.Structure.IsBuilt &&
-                                          Player.CanAfford(missing * UnitCatalog.ReinforceCost, 0);
+                int cost = missing > 0 ? ReinforcementPoint.Cost(squad) : 0;
+                row.buttonText.text = missing > 0 ? $"Пополнить +{missing} · {cost}" : "Полный";
+                row.button.interactable = missing > 0 && point.Structure.IsBuilt && Player.CanAfford(cost, 0);
             }
 
             if (reinforceNote.gameObject.activeSelf != (count == 0))
@@ -1090,14 +1134,231 @@ namespace Generals
             hireProgressFill.anchorMax = new Vector2(Mathf.Clamp01(progress), 1f);
         }
 
-        // Строка поведения есть только у казарм; без неё панель ниже, верхние строки опускаются
-        void SetBehaviorRowVisible(bool visible)
+        // Строки «Вооружение» и «Оборона / Атака» есть только у казарм; без них панель ниже,
+        // верхние строки опускаются
+        void SetBarracksRowsVisible(bool visible)
         {
             if (behaviorRow.activeSelf == visible)
                 return;
             behaviorRow.SetActive(visible);
+            weaponRow.SetActive(visible);
             var rect = (RectTransform)selectionPanel.transform;
-            rect.sizeDelta = new Vector2(rect.sizeDelta.x, visible ? selectionHeightWithBehavior : selectionHeightWithBehavior - BehaviorRowHeight);
+            rect.sizeDelta = new Vector2(rect.sizeDelta.x,
+                visible ? selectionHeightWithBehavior : selectionHeightWithBehavior - BehaviorRowHeight - WeaponRowHeight);
+        }
+
+        // Высота строки вооружения с зазором до строки поведения под ней
+        float WeaponRowHeight
+        {
+            get
+            {
+                var weapon = (RectTransform)weaponRow.transform;
+                var behavior = (RectTransform)behaviorRow.transform;
+                float gap = weapon.anchoredPosition.y - (behavior.anchoredPosition.y + behavior.rect.height);
+                return weapon.rect.height + gap;
+            }
+        }
+
+        // ---------- Вооружение (казармы) ----------
+
+        readonly List<(Button button, SquadWeapon weapon)> weaponButtons = new();
+        readonly List<SquadWeapon> weaponChoices = new();
+
+        // Кнопки «Винтовки» и открытого спецоружия: выбранное подсвечено, на каждой — надбавка и
+        // роль мелко. Ничего не открыто — вторая кнопка-подсказка «изучите в оружейной»
+        void UpdateWeaponRow(Barracks barracks)
+        {
+            weaponChoices.Clear();
+            weaponChoices.Add(SquadWeapon.Rifle);
+            weaponChoices.AddRange(Player.knownWeapons);
+            bool hint = Player.knownWeapons.Count == 0;
+            int count = weaponChoices.Count + (hint ? 1 : 0);
+
+            while (weaponButtons.Count < count)
+            {
+                var button = Instantiate(weaponButtonTemplate, weaponButtonTemplate.transform.parent);
+                button.gameObject.SetActive(true);
+                int index = weaponButtons.Count;
+                button.onClick.AddListener(() => SelectWeapon(index));
+                weaponButtons.Add((button, SquadWeapon.Rifle));
+            }
+
+            for (int i = 0; i < weaponButtons.Count; i++)
+            {
+                var (button, _) = weaponButtons[i];
+                bool visible = i < count;
+                if (button.gameObject.activeSelf != visible)
+                    button.gameObject.SetActive(visible);
+                if (!visible)
+                    continue;
+
+                if (i >= weaponChoices.Count)
+                {
+                    // Подсказка: где взять спецоружие
+                    weaponButtons[i] = (button, SquadWeapon.Rifle);
+                    button.interactable = false;
+                    button.image.color = inactiveColor;
+                    SetButtonText(button, "Спецоружие\n<size=62%>изучите в оружейной</size>");
+                    continue;
+                }
+
+                var weapon = weaponChoices[i];
+                weaponButtons[i] = (button, weapon);
+                button.interactable = true;
+                button.image.color = barracks.Weapon == weapon ? weaponSelectedColor : inactiveColor;
+                if (weapon == SquadWeapon.Rifle)
+                {
+                    SetButtonText(button, "Винтовки\n<size=62%>у всех</size>");
+                }
+                else
+                {
+                    var special = WeaponCatalog.Special(weapon);
+                    SetButtonText(button, $"{special.name} +{special.squadSurcharge}\n<size=62%>{special.role}</size>");
+                }
+            }
+        }
+
+        // ---------- Оружейная ----------
+
+        class ArmouryRow
+        {
+            public RectTransform rect;
+            public Image background;
+            public TMP_Text label;
+            public Button button;
+            public TMP_Text buttonText;
+            public SquadWeapon weapon;
+        }
+        readonly List<ArmouryRow> armouryRows = new();
+        Armoury shownArmoury;
+        // Выбрано оружие для изучения, но открыто уже два — ждём ответа «вместо чего»
+        SquadWeapon? pendingResearch;
+        Color armouryRowColor;
+
+        // Над панелью оружейной — все 4 спецоружия: название, роль, надбавка к отряду; кнопка по
+        // состоянию: «Открыто», «Будет забыто», «Изучается 40%», «Изучить · 200», «Изучить вместо… · 200»
+        void UpdateArmouryPanel(Armoury armoury)
+        {
+            shownArmoury = armoury;
+            if (armouryPanel.activeSelf != (armoury != null))
+                armouryPanel.SetActive(armoury != null);
+            if (armoury == null)
+            {
+                pendingResearch = null;
+                return;
+            }
+
+            armouryHeader.text = $"Оружейная · открыто {Player.knownWeapons.Count} из {WeaponCatalog.MaxKnownSpecials}";
+
+            var specials = WeaponCatalog.Specials;
+            while (armouryRows.Count < specials.Count)
+                armouryRows.Add(CreateArmouryRow());
+
+            bool busy = Player.researching.HasValue;
+            for (int i = 0; i < armouryRows.Count; i++)
+            {
+                var row = armouryRows[i];
+                var special = specials[i];
+                row.weapon = special.id;
+                bool known = Player.Knows(special.id);
+                bool researching = armoury.Researching == special.id;
+                bool forgetting = armoury.Replacing == special.id;
+
+                row.label.text = $"{special.name}\n<size=70%>{special.role} · отряд +{special.squadSurcharge}</size>";
+                row.background.color = known ? knownWeaponRowColor : armouryRowColor;
+
+                if (known)
+                {
+                    row.buttonText.text = forgetting ? "Будет забыто" : "Открыто";
+                    row.button.interactable = false;
+                }
+                else if (researching)
+                {
+                    row.buttonText.text = $"Изучается {armoury.Progress:P0}";
+                    row.button.interactable = false;
+                }
+                else
+                {
+                    row.buttonText.text = armoury.NeedsReplacement
+                        ? $"Изучить вместо… · {special.researchCost}"
+                        : $"Изучить · {special.researchCost}";
+                    row.button.interactable = !busy && armoury.Structure.IsBuilt && Player.CanAfford(special.researchCost, 0);
+                }
+            }
+
+            // «Изучить … вместо:» — пока выбор актуален
+            if (pendingResearch.HasValue && (busy || Player.Knows(pendingResearch.Value) || !armoury.NeedsReplacement))
+                pendingResearch = null;
+            bool choosing = pendingResearch.HasValue;
+            if (armouryReplaceRow.gameObject.activeSelf != choosing)
+                armouryReplaceRow.gameObject.SetActive(choosing);
+            if (choosing)
+            {
+                armouryReplaceRow.Find("Label").GetComponentInChildren<TMP_Text>().text =
+                    $"Изучить «{WeaponCatalog.Name(pendingResearch.Value)}» вместо:";
+                for (int k = 0; k < WeaponCatalog.MaxKnownSpecials; k++)
+                {
+                    var option = armouryReplaceRow.Find("Option " + k).GetComponent<Button>();
+                    bool has = k < Player.knownWeapons.Count;
+                    option.gameObject.SetActive(has);
+                    if (has)
+                        SetButtonText(option, WeaponCatalog.Name(Player.knownWeapons[k]));
+                }
+            }
+        }
+
+        ArmouryRow CreateArmouryRow()
+        {
+            var rect = Instantiate(armouryRowTemplate, armouryRowTemplate.parent);
+            rect.gameObject.SetActive(true);
+            rect.name = "Armoury Row " + armouryRows.Count;
+            // Строки — сразу за образцом, перед строкой «вместо»
+            rect.SetSiblingIndex(armouryReplaceRow.GetSiblingIndex());
+            var button = rect.Find("Research").GetComponent<Button>();
+            var row = new ArmouryRow
+            {
+                rect = rect,
+                background = rect.GetComponent<Image>(),
+                label = rect.Find("Label").GetComponentInChildren<TMP_Text>(),
+                button = button,
+                buttonText = button.GetComponentInChildren<TMP_Text>(),
+            };
+            button.onClick.AddListener(() => ResearchClicked(row.weapon));
+            return row;
+        }
+
+        void ResearchClicked(SquadWeapon weapon)
+        {
+            if (shownArmoury == null)
+                return;
+            // Открыто уже два — сначала спросить, какое забыть
+            if (shownArmoury.NeedsReplacement)
+            {
+                pendingResearch = weapon;
+                return;
+            }
+            if (!shownArmoury.TryResearch(weapon, null, out var reason))
+                Toast(reason);
+        }
+
+        void ReplaceClicked(int option)
+        {
+            if (shownArmoury == null || !pendingResearch.HasValue || option >= Player.knownWeapons.Count)
+                return;
+            var forget = Player.knownWeapons[option];
+            if (shownArmoury.TryResearch(pendingResearch.Value, forget, out var reason))
+                Toast($"Изучается «{WeaponCatalog.Name(pendingResearch.Value)}», «{WeaponCatalog.Name(forget)}» будет забыто");
+            else
+                Toast(reason);
+            pendingResearch = null;
+        }
+
+        void SelectWeapon(int index)
+        {
+            var barracks = selected != null && selected.Faction == Player ? selected.Barracks : null;
+            if (barracks == null || index >= weaponChoices.Count)
+                return;
+            barracks.SetWeapon(weaponButtons[index].weapon);
         }
 
         void ToggleRepeatForSelected()

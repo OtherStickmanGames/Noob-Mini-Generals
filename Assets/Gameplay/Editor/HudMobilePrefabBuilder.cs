@@ -64,6 +64,11 @@ namespace Generals.EditorTools
                 AddRepeatIconTo(PrefabPath);
                 mobile = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
             }
+            if (NeedsWeaponControls(mobile.GetComponent<GameHud>()))
+            {
+                AddWeaponControlsTo(PrefabPath, true);
+                mobile = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
+            }
 
             var pc = AssetDatabase.LoadAssetAtPath<GameObject>(HudPrefabBuilder.PrefabPath);
             if (pc == null || pc.GetComponent<GameHud>() is not { } pcHud)
@@ -268,6 +273,7 @@ namespace Generals.EditorTools
 
             AddReinforceControls(root, true);
             AddRepeatIcon(root);
+            AddWeaponControls(root, true);
 
             Directory.CreateDirectory(Path.GetDirectoryName(PrefabPath));
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);

@@ -43,7 +43,9 @@ namespace Generals
 
             var direction = Combat.RandomInCone((aim - muzzle).normalized, Def.spread);
             MatchManager.Instance.Projectiles.Fire(Def, owner, muzzle, direction, Def.range * 1.5f + 4f);
-            MatchManager.Instance.Effects.MuzzleFlash(muzzle, direction, Def.kind == ProjectileKind.Shell ? 1.8f : 1f);
+            // У огнемёта вспышки нет — видна сама струя
+            if (Def.kind != ProjectileKind.Flame)
+                MatchManager.Instance.Effects.MuzzleFlash(muzzle, direction, Def.kind == ProjectileKind.Shell ? 1.8f : 1f);
             cooldown = Def.interval * Random.Range(0.9f, 1.1f);
         }
     }
