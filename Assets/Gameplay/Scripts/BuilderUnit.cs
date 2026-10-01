@@ -10,18 +10,22 @@ namespace Generals
     /// </summary>
     public class BuilderUnit : MonoBehaviour
     {
-        const float WorkDistance = 1.2f;
-        const float EdgeMargin = 0.8f;
+        const float WorkDistance = 1.4f;
         const float RetargetInterval = 0.5f;
+        // Агент встаёт у точки с такой погрешностью: точка работы выбирается с запасом на неё,
+        // а стоящий у своей точки строитель работает, даже если до здания чуть дальше WorkDistance
+        const float ArriveTolerance = 0.35f;
+        // Точка работы — не дальше этого от здания
+        const float MaxPointDistance = WorkDistance - ArriveTolerance;
+        // Кандидаты — на таком расстоянии от края здания: дальше края NavMesh у здания (вырез на радиус
+        // агента 0.5 м) и заметно ближе MaxPointDistance, чтобы сдвиг к NavMesh не выводил их за предел
+        const float EdgeMargin = 0.75f;
         // Точки работы вокруг стройки
         const float CandidateSpacing = 1f;
         const float CornerInset = 0.2f;
-        const float SampleRadius = 0.4f;
+        const float SampleRadius = 0.3f;
         // По одной неудаче на сторону здания
         const int MaxPathFailures = 4;
-        // Агент встаёт у точки с такой погрешностью: точка работы выбирается с запасом на неё,
-        // а стоящий у своей точки строитель работает, даже если до здания чуть дальше WorkDistance
-        const float ArriveTolerance = 0.4f;
 
         NavMeshPath path;
         Vector3? workPoint;
@@ -158,7 +162,7 @@ namespace Generals
                         : center + new Vector3(sign * (half.x + EdgeMargin), 0f, t);
 
                     if (!NavMesh.SamplePosition(OnGround(candidate), out var hit, SampleRadius, Nav.Infantry) ||
-                        site.DistanceTo(hit.position) > WorkDistance - ArriveTolerance || match.IsOnWall(hit.position))
+                        site.DistanceTo(hit.position) > MaxPointDistance || match.IsOnWall(hit.position))
                         continue;
                     sideCandidates[side].Add(((hit.position - transform.position).sqrMagnitude, hit.position));
                 }
@@ -193,7 +197,7 @@ namespace Generals
                     if (corners.Length > 0)
                     {
                         var end = corners[^1];
-                        if (site.DistanceTo(end) <= WorkDistance - ArriveTolerance && !match.IsOnWall(end))
+                        if (site.DistanceTo(end) <= MaxPointDistance && !match.IsOnWall(end))
                         {
                             point = end;
                             return true;
