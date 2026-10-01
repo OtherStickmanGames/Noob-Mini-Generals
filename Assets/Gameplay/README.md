@@ -60,6 +60,8 @@
 - `UnitCatalog.cs`, `Barracks.cs`, `Squad.cs`, `InfantryUnit.cs` — отряды пехоты, казармы и поведение;
   `ReinforcementPoint.cs` — пункт подкрепления (пополнение отрядов кнопкой в его панели);
   `Armoury.cs` — оружейная (спецоружие «2 из 4»), вооружение отрядов выбирается в казармах.
+- `VehicleCatalog.cs`, `Factory.cs`, `VehicleUnit.cs` — техника (шаг 9): машинный завод, разведчик, танк,
+  артиллерия; у техники свой NavMesh (`Nav.cs` — фильтры запросов).
 - `WeaponCatalog.cs`, `Weapon.cs`, `Combat.cs` (`IDamageable`), `Projectiles.cs`, `Turret.cs` — оружие,
   снаряды, урон, турель. `Effects.cs` + шейдер `Resources/Effect.shader` — вспышки, обломки, дым.
 - `DestructibleModel.cs` — здание крошится по вокселям; `WallSegment.cs` — участок стены как цель.

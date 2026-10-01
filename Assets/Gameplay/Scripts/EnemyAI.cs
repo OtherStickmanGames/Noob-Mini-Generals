@@ -33,7 +33,8 @@ namespace Generals
     /// Простой скриптовый ИИ противника (шаг 6 среза; нейросеть — после среза). Играет по тем же
     /// правилам, что игрок: те же ресурсы, цены, строители, правила застройки, без подглядывания.
     /// Экономика — по списку стройки (разрушенное отстраивает). Армия нанимается постоянно, с запасом
-    /// денег на следующую постройку. Бойцы копятся в обороне; набралась волна — все казармы в атаку;
+    /// денег на следующую постройку; завод — танк и артиллерия исследованием, по машине в очереди.
+    /// Отряды и машины копятся в обороне; набралась волна — все казармы и заводы в атаку;
     /// волна почти погибла — снова оборона. Игрок прорвался внутрь стен — атакующих отзывают.
     /// </summary>
     public class EnemyAI : MonoBehaviour
@@ -52,6 +53,7 @@ namespace Generals
             StructureType.Turret,
             StructureType.ReinforcementPoint,
             StructureType.Armoury,
+            StructureType.Factory,
             null,
             StructureType.Extractor,
             StructureType.Turret,
@@ -125,7 +127,9 @@ namespace Generals
 
             ReinforceSquads(reserve);
             Research(reserve);
+            ResearchVehicles(reserve);
             HireInfantry(reserve);
+            HireVehicles(reserve);
             UpdateWaves();
         }
 
@@ -243,6 +247,47 @@ namespace Generals
             }
         }
 
+        Factory BuiltFactory()
+        {
+            foreach (var s in me.structures)
+                if (s != null && s.IsBuilt && s.Factory != null)
+                    return s.Factory;
+            return null;
+        }
+
+        // Завод: сначала танк, потом артиллерия
+        void ResearchVehicles(float reserve)
+        {
+            if (me.vehicleResearching.HasValue)
+                return;
+            var factory = BuiltFactory();
+            if (factory == null)
+                return;
+            foreach (var type in VehicleCatalog.All)
+            {
+                if (me.KnowsVehicle(type))
+                    continue;
+                if (me.baseResource - VehicleCatalog.Get(type).researchCost >= reserve)
+                    factory.TryResearch(type, out _);
+                return;
+            }
+        }
+
+        // Одна машина в очереди: танк чаще, разведчик и артиллерия реже (из открытых)
+        void HireVehicles(float reserve)
+        {
+            var factory = BuiltFactory();
+            if (factory == null || factory.Queued >= 1)
+                return;
+
+            float roll = Random.value;
+            var type = roll < 0.5f && me.KnowsVehicle(VehicleType.Tank) ? VehicleType.Tank
+                     : roll < 0.75f && me.KnowsVehicle(VehicleType.Artillery) ? VehicleType.Artillery
+                     : VehicleType.Scout;
+            if (me.baseResource - VehicleCatalog.Get(type).cost >= reserve)
+                factory.TryHire(type, out _);
+        }
+
         // ---------- Застройка ----------
 
         int2 HqCenter => me.headquarters.MinCell + me.headquarters.Def.footprint / 2;
@@ -259,6 +304,14 @@ namespace Generals
                 var side = new float2(-outward.y, outward.x);
                 float sign = turretSide++ % 2 == 0 ? 1f : -1f;
                 center = (int2)math.round(GateCell + outward * 3f + side * sign * 6f);
+            }
+            else if (def.type == StructureType.Factory)
+            {
+                // Завод — сбоку от прохода к воротам, ближе к ним: технике нужен свободный выезд
+                var outward = math.normalizesafe((float2)(GateCell - HqCenter));
+                var side = new float2(-outward.y, outward.x);
+                var mid = ((float2)HqCenter + GateCell) * 0.5f;
+                center = (int2)math.round(mid + side * (Random.value < 0.5f ? -9f : 9f));
             }
             else
             {
@@ -325,6 +378,16 @@ namespace Generals
                 else
                     defendingSquads++;
             }
+            // Машина в волне — как отряд; живая атакующая машина — как три бойца
+            foreach (var v in me.vehicles)
+            {
+                if (v == null || !v.IsAlive)
+                    continue;
+                if (v.Behavior == BarracksBehavior.Attack)
+                    attackers += 3;
+                else
+                    defendingSquads++;
+            }
 
             if (!Attacking)
             {
@@ -355,14 +418,23 @@ namespace Generals
             foreach (var u in foe.units)
                 if (Combat.IsAlive(u) && match.IsInsideWalls(u.transform.position, me))
                     n++;
+            foreach (var v in foe.vehicles)
+                if (Combat.IsAlive(v) && match.IsInsideWalls(v.transform.position, me))
+                    n += 3;
             return n;
         }
 
         void SetBehavior(BarracksBehavior behavior)
         {
             foreach (var s in me.structures)
-                if (s != null && s.Barracks != null)
+            {
+                if (s == null)
+                    continue;
+                if (s.Barracks != null)
                     s.Barracks.SetBehavior(behavior);
+                if (s.Factory != null)
+                    s.Factory.SetBehavior(behavior);
+            }
         }
     }
 }
