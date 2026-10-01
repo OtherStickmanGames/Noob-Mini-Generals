@@ -331,9 +331,11 @@ namespace Generals
                         if (math.max(math.abs(dx), math.abs(dz)) != r)
                             continue;
                         var candidate = start + new int2(dx, dz);
-                        if (grid.CanPlace(me, def, candidate, out _, out _) &&
+                        // Проходы (дорогая проверка) — последней
+                        if (grid.CanPlace(me, def, candidate, out _, out _, checkPassages: false) &&
                             grid.HasClearance(candidate, def.footprint, Clearance) &&
-                            !InCorridor(candidate, def.footprint))
+                            !InCorridor(candidate, def.footprint) &&
+                            grid.KeepsPassages(me, def, candidate, out _))
                             spots.Add(candidate);
                     }
                 }

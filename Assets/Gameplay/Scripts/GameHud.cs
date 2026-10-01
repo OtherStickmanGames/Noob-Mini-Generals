@@ -694,9 +694,10 @@ namespace Generals
                             continue;
 
                         var min = start + new int2(dx, dz);
-                        if (!Match.Grid.CanPlace(Player, def, min, out _, out _))
+                        // Проходы (дорогая проверка) — только у мест, которые подошли по остальному
+                        if (!Match.Grid.CanPlace(Player, def, min, out _, out _, checkPassages: false))
                             continue;
-                        if (!hasAny)
+                        if (!hasAny && Match.Grid.KeepsPassages(Player, def, min, out _))
                         {
                             anySpot = min;
                             hasAny = true;
@@ -705,7 +706,7 @@ namespace Generals
                         bool clearance = Match.Grid.HasClearance(min, def.footprint, PlacementClearance);
                         if (!clearance && hasVisible)
                             continue;
-                        if (!IsSpotVisible(def, min))
+                        if (!IsSpotVisible(def, min) || !Match.Grid.KeepsPassages(Player, def, min, out _))
                             continue;
 
                         if (clearance)

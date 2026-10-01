@@ -22,6 +22,7 @@ namespace Generals
         [SerializeField] EnemyAiSettings enemyAi = new();
 
         public EnemyAI EnemyAI { get; private set; }
+        public EnemyAiSettings EnemyAiSettings => enemyAi;
 
         public VoxelArena Arena => arena;
         public ArenaNavMesh ArenaNav => navMesh;
@@ -828,25 +829,16 @@ namespace Generals
                 return null;
 
             var gate = GateOf(faction);
-            var from = factory.Structure.ClosestEdgePoint(gate, 2f);
-            if (!NavMesh.SamplePosition(from, out var hit, 4f, Nav.Vehicles))
-            {
-                blocked = true;
-                return null;
-            }
-            exitPath ??= new NavMeshPath();
-            if (NavMesh.SamplePosition(gate, out var gateHit, 4f, Nav.Vehicles) &&
-                (!NavMesh.CalculatePath(hit.position, gateHit.position, Nav.Vehicles, exitPath) ||
-                 exitPath.status != NavMeshPathStatus.PathComplete))
+            if (!FindVehicleExit(factory.Structure, gate, out var exit))
             {
                 blocked = true;
                 return null;
             }
 
-            var look = gate - hit.position;
+            var look = gate - exit;
             look.y = 0f;
             var go = new GameObject();
-            go.transform.SetPositionAndRotation(hit.position, look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity);
+            go.transform.SetPositionAndRotation(exit, look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity);
             spawned.Add(go);
             var vehicle = go.AddComponent<VehicleUnit>();
             vehicle.Init(faction, factory, behavior, type, arena.Material);
@@ -854,6 +846,52 @@ namespace Generals
             factory.Vehicles.Add(vehicle);
             faction.vehiclesBuilt++;
             return vehicle;
+        }
+
+        readonly List<(float distance, Vector3 point)> exitCandidates = new();
+
+        /// <summary>
+        /// Точка выезда машины у завода: вдоль всех сторон на 2.5 м от края, ближайшие к воротам —
+        /// первыми; годится первая на NavMesh техники, от которой есть полный путь к воротам (не
+        /// больше 4 поисков пути: путь к недостижимой точке обходит весь NavMesh)
+        /// </summary>
+        bool FindVehicleExit(Structure factory, Vector3 gate, out Vector3 exit)
+        {
+            exit = default;
+            if (!NavMesh.SamplePosition(gate, out var gateHit, 4f, Nav.Vehicles))
+                return false;
+
+            exitCandidates.Clear();
+            var center = factory.transform.position;
+            var half = factory.HalfExtents + new Vector2(2.5f, 2.5f);
+            for (float x = -half.x; x <= half.x + 0.01f; x += 1.5f)
+            {
+                exitCandidates.Add(((center + new Vector3(x, 0f, half.y) - gate).sqrMagnitude, center + new Vector3(x, 0f, half.y)));
+                exitCandidates.Add(((center + new Vector3(x, 0f, -half.y) - gate).sqrMagnitude, center + new Vector3(x, 0f, -half.y)));
+            }
+            for (float z = -half.y; z <= half.y + 0.01f; z += 1.5f)
+            {
+                exitCandidates.Add(((center + new Vector3(half.x, 0f, z) - gate).sqrMagnitude, center + new Vector3(half.x, 0f, z)));
+                exitCandidates.Add(((center + new Vector3(-half.x, 0f, z) - gate).sqrMagnitude, center + new Vector3(-half.x, 0f, z)));
+            }
+            exitCandidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+            exitPath ??= new NavMeshPath();
+            int attempts = 0;
+            foreach (var (_, point) in exitCandidates)
+            {
+                if (!NavMesh.SamplePosition(point, out var hit, 1.2f, Nav.Vehicles))
+                    continue;
+                if (NavMesh.CalculatePath(hit.position, gateHit.position, Nav.Vehicles, exitPath) &&
+                    exitPath.status == NavMeshPathStatus.PathComplete)
+                {
+                    exit = hit.position;
+                    return true;
+                }
+                if (++attempts >= 4)
+                    break;
+            }
+            return false;
         }
 
         /// <summary>
