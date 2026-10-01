@@ -4,10 +4,13 @@ using UnityEngine;
 using UnityEngine.AI;
 
 /// <summary>
-/// Один NavMesh на всю арену. Источники геометрии (по мешу на чанк) хранятся
-/// готовым списком: при изменении чанка заменяется только его элемент, а
-/// UpdateNavMeshDataAsync пересобирает только плитки, куда попала изменённая геометрия.
-/// Сбора геометрии со сцены (CollectSources) нет вообще.
+/// Один NavMesh на всю арену. Источники геометрии (меш формы на чанк) хранятся готовым списком:
+/// при изменении чанка заменяется только его элемент, сбора геометрии со сцены (CollectSources) нет.
+/// Плитки пересобираются только изменённые, но каждое обновление UpdateNavMeshDataAsync всё равно
+/// обрабатывает источники всей арены (~30 мс главного потока плюс рабочие потоки), поэтому
+/// пересборка редкая: срочная (пролом стены, новая карта) — не чаще раза в minRebuildInterval,
+/// мелкие изменения (воронки, сколы стен — проходимость почти не меняют) копятся и уходят
+/// раз в deferredRebuildInterval или вместе со срочной.
 /// У каждого чанка два источника: суша (ходить можно) и вода (Not Walkable) —
 /// непроходимая поверхность воды закрывает и дно под ней.
 /// </summary>
@@ -19,9 +22,11 @@ public class ArenaNavMesh : MonoBehaviour
     [SerializeField] int navCellsPerVoxel = 3;
     [Tooltip("Высота уступа, на который агент заходит без линков, в вокселях")]
     [SerializeField] float stepHeightInVoxels = 1.05f;
-    [Tooltip("Не чаще одной пересборки за столько секунд: в бою воронки и сколы стен идут непрерывно, " +
-             "а каждая сборка заново хеширует геометрию всей арены в рабочих потоках")]
+    [Tooltip("Срочная пересборка (пролом стены, новая карта) — не чаще раза за столько секунд")]
     [SerializeField] float minRebuildInterval = 1f;
+    [Tooltip("Мелкие изменения (воронки, сколы стен) копятся и уходят одной пересборкой не позже, " +
+             "чем через столько секунд после первого из них (или раньше — вместе со срочной)")]
+    [SerializeField] float deferredRebuildInterval = 12f;
 
     VoxelArena arena;
     NavMeshData data;
@@ -39,6 +44,8 @@ public class ArenaNavMesh : MonoBehaviour
     readonly List<NavMeshBuildSource> buildSources = new();
     AsyncOperation running;
     bool dirty;
+    bool urgent;
+    float firstDirtyTime = float.PositiveInfinity;
 
     static readonly Unity.Profiling.ProfilerMarker StartMarker = new("ArenaNavMesh.StartUpdate");
 
@@ -57,11 +64,13 @@ public class ArenaNavMesh : MonoBehaviour
     {
         arena = GetComponent<VoxelArena>();
         arena.ChunkMeshChanged += Chunk_MeshChanged;
+        arena.Generated += RequestUrgentRebuild;
     }
 
     void OnDestroy()
     {
         arena.ChunkMeshChanged -= Chunk_MeshChanged;
+        arena.Generated -= RequestUrgentRebuild;
 
         if (sourceIndexBySlot != null)
             instance.Remove();
@@ -96,8 +105,16 @@ public class ArenaNavMesh : MonoBehaviour
 
         UpdateSource(chunk * 2, land, localToWorld, 0);
         UpdateSource(chunk * 2 + 1, water, localToWorld, NotWalkableArea);
+        if (!dirty)
+            firstDirtyTime = Time.realtimeSinceStartup;
         dirty = true;
     }
+
+    /// <summary>
+    /// Изменилась проходимость (пролом стены, новая карта): пересобрать, как только можно,
+    /// а не ждать накопления мелких изменений
+    /// </summary>
+    public void RequestUrgentRebuild() => urgent = true;
 
     void UpdateSource(int slot, Mesh mesh, Matrix4x4 localToWorld, int area)
     {
@@ -160,10 +177,16 @@ public class ArenaNavMesh : MonoBehaviour
         // Первая сборка — сразу: без неё юниты не могут появиться
         if (!dirty || running != null)
             return;
-        if (HasNavMesh && Time.realtimeSinceStartup - lastStartTime < minRebuildInterval)
+        float now = Time.realtimeSinceStartup;
+        bool due = !HasNavMesh ||
+                   (urgent && now - lastStartTime >= minRebuildInterval) ||
+                   now - firstDirtyTime >= deferredRebuildInterval;
+        if (!due)
             return;
 
         dirty = false;
+        urgent = false;
+        firstDirtyTime = float.PositiveInfinity;
         lastStartTime = Time.realtimeSinceStartup;
         buildSources.Clear();
         buildSources.AddRange(sources);

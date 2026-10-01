@@ -171,6 +171,8 @@ namespace Generals
         /// <summary>Участок стены обрушился (вызывает сам участок перед уничтожением)</summary>
         public void WallSegmentDestroyed(WallSegment segment)
         {
+            // Пролом — новый проход: NavMesh сразу, не дожидаясь накопления воронок
+            navMesh.RequestUrgentRebuild();
             segment.Faction.walls.Remove(segment);
             foreach (var cell in segment.Cells)
                 if (wallByCell.TryGetValue(cell, out var s) && s == segment)

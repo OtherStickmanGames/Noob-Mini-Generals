@@ -278,6 +278,8 @@ public class ArenaTestController : MonoBehaviour
         // Центр чуть внутри поверхности, чтобы воронка была и вглубь
         var center = hit.point - hit.normal * (arena.VoxelSize * 0.5f);
         lastRemoved = arena.Explode(center, explosionRadius);
+        // Тестовый взрыв — чтобы замерить пересборку и проверить пути сразу
+        navMesh.RequestUrgentRebuild();
         lastClick = hit.collider.name;
     }
 
