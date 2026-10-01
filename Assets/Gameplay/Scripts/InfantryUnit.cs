@@ -17,6 +17,8 @@ namespace Generals
         // Позицию вокруг постройки ищем, когда до неё не дальше дальности оружия + столько метров
         const float SlotSearchDistance = 10f;
         public const float ChestHeight = 1.05f;
+        // Позиции бойцов у постройки — не ближе этого друг к другу
+        const float SlotSpacing = 1.1f;
         /// <summary>Сколько секунд почти без движения по пути считается «застрял»</summary>
         const float StuckTime = 1.5f;
         /// <summary>Стреляет, только довернувшись к цели точнее этого, градусы</summary>
@@ -52,7 +54,6 @@ namespace Generals
         Vector3 slot;
         int blockedChecks;
 
-        static readonly List<(float distance, InfantryUnit unit)> nearby = new();
 
         public void Init(Faction faction, Squad squad, Material material, SquadWeapon weaponType)
         {
@@ -195,25 +196,20 @@ namespace Generals
             }
         }
 
-        // Ближайший живой враг в дальности стрельбы и на линии огня; текущая цель — если ещё годится
-        InfantryUnit EnemyInRange()
+        // Ближайший живой враг (боец или машина) в дальности стрельбы и на линии огня; текущая цель —
+        // если ещё годится. Винтовки и пулемёты бьют машину, только если бойцов рядом нет; гранатомёт —
+        // наоборот, сначала машины
+        IDamageable EnemyInRange()
         {
             float range = weapon.Def.range * 0.9f;
-            if (Target is InfantryUnit current && Combat.IsAlive(current) &&
-                FlatDistance(current.transform.position) <= range && Combat.HasLineOfFire(Muzzle, current, Faction))
-                return current;
+            float vehicleWeight = Combat.VehicleWeight(weapon.Def);
+            bool sticky = Target is InfantryUnit || (Target is VehicleUnit && vehicleWeight <= 1f);
+            if (sticky && Combat.IsAlive(Target) &&
+                FlatDistance(Target.transform.position) <= range && Combat.HasLineOfFire(Muzzle, Target, Faction))
+                return Target;
 
             var enemy = MatchManager.Instance.GetFaction(1 - Faction.team);
-            nearby.Clear();
-            foreach (var u in enemy.units)
-            {
-                if (!Combat.IsAlive(u))
-                    continue;
-                float d = FlatDistance(u.transform.position);
-                if (d <= range)
-                    nearby.Add((d, u));
-            }
-            nearby.Sort((a, b) => a.distance.CompareTo(b.distance));
+            var nearby = Combat.EnemyUnitsNear(enemy, transform.position, range, 0f, vehicleWeight);
 
             // Линию огня проверяем только у нескольких ближайших
             for (int i = 0; i < nearby.Count && i < 3; i++)
@@ -262,7 +258,7 @@ namespace Generals
                     return;
                 }
 
-                hasSlot = match.ClaimAttackSlot(this, target, weapon.Def.range, null, out slot);
+                hasSlot = match.ClaimAttackSlot(this, target, weapon.Def, ChestHeight, SlotSpacing, false, null, out slot);
                 if (!hasSlot)
                 {
                     // Вокруг цели места нет (всё занято или не видно) — отряд берёт другую
@@ -317,7 +313,7 @@ namespace Generals
             if (hasSlot && Combat.IsAlive(slotTarget))
             {
                 var old = slot;
-                hasSlot = MatchManager.Instance.ClaimAttackSlot(this, slotTarget, weapon.Def.range, old, out slot);
+                hasSlot = MatchManager.Instance.ClaimAttackSlot(this, slotTarget, weapon.Def, ChestHeight, SlotSpacing, false, old, out slot);
                 if (!hasSlot)
                     slotTarget = null;
             }

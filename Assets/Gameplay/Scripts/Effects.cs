@@ -262,6 +262,29 @@ namespace Generals
             }
         }
 
+        /// <summary>
+        /// Машина подбита: взрыв, куски брони её цветов и металла разлетаются, над местом — дым.
+        /// size — размер машины в метрах (x — ширина, y — высота, z — длина)
+        /// </summary>
+        public void VehicleDestroyed(Vector3 position, Quaternion rotation, Vector3 size, int team)
+        {
+            var center = position + Vector3.up * (size.y * 0.5f);
+            Explosion(center, Mathf.Clamp(size.x * 0.7f, 1f, 1.8f));
+            byte color = TeamSlot(team), dark = TeamDarkSlot(team);
+            int pieces = Mathf.Clamp(Mathf.RoundToInt(size.x * size.z * 5f), 14, 32);
+            for (int i = 0; i < pieces; i++)
+            {
+                byte slot = i % 3 == 0 ? VoxelBlocks.SlotMetal : i % 3 == 1 ? color : dark;
+                var local = new Vector3(Random.Range(-0.5f, 0.5f) * size.x, Random.Range(0.1f, 0.9f) * size.y,
+                                        Random.Range(-0.5f, 0.5f) * size.z);
+                EmitDebris(position + rotation * local, Random.insideUnitSphere * 4f + Vector3.up * Random.Range(3f, 6f),
+                           VoxelModels.VoxelSize * Random.Range(0.8f, 1.6f), slot, Random.Range(2.5f, 4f));
+            }
+            for (int i = 0; i < 8; i++)
+                EmitSmoke(center + Random.insideUnitSphere * size.x * 0.4f, Vector3.up * Random.Range(0.6f, 1.2f),
+                          Random.Range(0.5f, 0.8f), Random.Range(2.5f, 4f), 0.5f);
+        }
+
         // ---------- Цвета ----------
 
         static readonly Color DustColor = new(0.72f, 0.66f, 0.56f, 1f);

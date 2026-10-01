@@ -12,6 +12,7 @@ namespace Generals
         Turret,
         ReinforcementPoint,
         Armoury,
+        Factory,
     }
 
     public enum PlacementRule
@@ -122,6 +123,18 @@ namespace Generals
                 costBase = 200,
                 buildTime = 25f,
                 health = 1000f,
+                rule = PlacementRule.InsideWalls,
+                buildable = true,
+            },
+            // Машинный завод: техника (разведчик сразу, танк и артиллерия — исследованием в нём же)
+            [StructureType.Factory] = new StructureDef
+            {
+                type = StructureType.Factory,
+                name = "Машинный завод",
+                footprint = new int2(8, 10),
+                costBase = 300,
+                buildTime = 40f,
+                health = 1800f,
                 rule = PlacementRule.InsideWalls,
                 buildable = true,
             },

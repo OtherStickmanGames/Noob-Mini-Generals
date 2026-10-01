@@ -20,6 +20,9 @@ namespace Generals
             public float traveled;
             public float maxDistance;
             public float trailTimer;
+            // Навесной снаряд: летит по дуге со скоростью velocity под действием тяжести
+            public bool ballistic;
+            public Vector3 velocity;
         }
 
         // Вид трассера пули и снаряда турели
@@ -71,13 +74,37 @@ namespace Generals
             });
         }
 
+        /// <summary>Ускорение падения навесного снаряда, м/с²</summary>
+        public const float Gravity = 9.81f;
+
+        /// <summary>Навесной снаряд: стартует со скоростью velocity и летит по дуге</summary>
+        public void FireArc(WeaponDef def, Faction owner, Vector3 from, Vector3 velocity)
+        {
+            shots.Add(new Shot
+            {
+                def = def,
+                owner = owner,
+                position = from,
+                direction = velocity.normalized,
+                ballistic = true,
+                velocity = velocity,
+                // Дуга длиннее дальности; ограничение — только на случай промаха мимо карты
+                maxDistance = def.range * 4f + 20f,
+            });
+        }
+
         void Update()
         {
             float dt = Time.deltaTime;
             for (int i = shots.Count - 1; i >= 0; i--)
             {
                 var shot = shots[i];
-                float step = shot.def.projectileSpeed * dt;
+                if (shot.ballistic)
+                {
+                    shot.velocity += Vector3.down * (Gravity * dt);
+                    shot.direction = shot.velocity.normalized;
+                }
+                float step = (shot.ballistic ? shot.velocity.magnitude : shot.def.projectileSpeed) * dt;
                 if (TryHit(shot, step))
                 {
                     RemoveAt(i);
@@ -174,9 +201,12 @@ namespace Generals
 
             if (target != null)
             {
-                // Здание и стена крошатся сами — только искры; боец — искры и крошки его цвета
+                // Здание и стена крошатся сами — только искры; машина — искры от брони; боец — искры
+                // и крошки его цвета
                 if (target is IAreaTarget)
                     effects.HitSparks(point, normal, VoxelBlocks.SlotWallSide, false);
+                else if (target is VehicleUnit)
+                    effects.HitSparks(point, normal, VoxelBlocks.SlotMetal, false);
                 else
                     effects.HitSparks(point, normal, Effects.TeamSlot(target.Faction.team));
                 target.TakeDamage(Combat.DamageTo(shot.def, target, shot.def.damage), point, shot.direction);

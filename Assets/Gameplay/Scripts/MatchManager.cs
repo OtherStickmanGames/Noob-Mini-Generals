@@ -198,7 +198,7 @@ namespace Generals
         // ---------- Цели атаки ----------
 
         // Позиции бойцов вокруг цели, чтобы они не толпились в одной точке (например, в воротах)
-        readonly Dictionary<IAreaTarget, List<(InfantryUnit unit, Vector3 point)>> attackSlots = new();
+        readonly Dictionary<IAreaTarget, List<(IDamageable unit, Vector3 point, float spacing)>> attackSlots = new();
 
         /// <summary>Сколько бойцов уже атакует цель</summary>
         public int AttackersOf(IAreaTarget target) =>
@@ -209,10 +209,9 @@ namespace Generals
         /// Ближе — вероятнее, здание вдвое вероятнее участка стены, турель вдвое вероятнее здания, цель, которую уже бьют многие,
         /// менее вероятна. Так отряд расходится по целям, а в пролом видят казармы.
         /// </summary>
-        public IAreaTarget ChooseAttackTarget(InfantryUnit unit, IAreaTarget exclude)
+        public IAreaTarget ChooseAttackTarget(Faction own, Vector3 position, IAreaTarget exclude)
         {
-            var enemy = GetFaction(1 - unit.Faction.team);
-            var position = unit.transform.position;
+            var enemy = GetFaction(1 - own.team);
             candidateTargets.Clear();
 
             // Прорвался внутрь стен — бьёт только здания, стены за спиной уже не цель. Пока бой идёт,
@@ -307,11 +306,13 @@ namespace Generals
         }
 
         /// <summary>
-        /// Позиция для стрельбы по цели: на кольце вокруг неё на расстоянии ~60% дальности, на NavMesh,
-        /// с линией огня, не ближе 1.1 м к позициям других бойцов. Первой пробуется точка напротив
-        /// бойца, дальше — по очереди в обе стороны. avoid — позиция, в которой боец застрял.
+        /// Позиция для стрельбы по цели: на кольце вокруг неё на расстоянии ~60% дальности (навесной
+        /// огонь — ~70%, не ближе минимальной), на NavMesh своего агента, с линией огня (навесному не
+        /// нужна), не ближе spacing к позициям других (машине нужно больше места). Первой пробуется
+        /// точка напротив стрелка, дальше — по очереди в обе стороны. avoid — позиция, где он застрял.
         /// </summary>
-        public bool ClaimAttackSlot(InfantryUnit unit, IAreaTarget target, float range, Vector3? avoid, out Vector3 slot)
+        public bool ClaimAttackSlot(IDamageable unit, IAreaTarget target, WeaponDef weapon, float eyeHeight,
+                                    float spacing, bool vehicle, Vector3? avoid, out Vector3 slot)
         {
             using var _ = ClaimSlotMarker.Auto();
             CanClaimSlotThisFrame(); // сброс счётчика в новом кадре
@@ -319,14 +320,18 @@ namespace Generals
             ReleaseAttackSlot(unit, target);
             int pathFailures = 0;
             if (!attackSlots.TryGetValue(target, out var claims))
-                attackSlots[target] = claims = new List<(InfantryUnit, Vector3)>();
-            claims.RemoveAll(c => c.unit == null);
+                attackSlots[target] = claims = new List<(IDamageable, Vector3, float)>();
+            claims.RemoveAll(c => !Combat.Exists(c.unit));
 
-            float offset = Mathf.Clamp(range * 0.6f, 2f, range - 1f);
+            float range = weapon.range;
+            float offset = weapon.indirect
+                ? Mathf.Clamp(range * 0.7f, weapon.minRange + 1f, range - 2f)
+                : Mathf.Clamp(range * 0.6f, 2f, range - 1f);
+            var filter = vehicle ? Nav.Vehicles : Nav.Infantry;
             var half = target.HalfExtents + new Vector2(offset, offset);
             float perimeter = 4f * (half.x + half.y);
-            const float spacing = 1.2f;
-            int steps = Mathf.Max(8, Mathf.FloorToInt(perimeter / spacing));
+            const float step = 1.2f;
+            int steps = Mathf.Max(8, Mathf.FloorToInt(perimeter / step));
 
             // Точка периметра напротив бойца
             float start = 0f, best = float.MaxValue;
@@ -348,7 +353,7 @@ namespace Generals
                 float s = Mathf.Repeat(start + n * perimeter / steps, perimeter);
                 var p = PerimeterPoint(target.transform.position, half, s);
 
-                if (!NavMesh.SamplePosition(p, out var hit, 1.2f, Nav.Infantry))
+                if (!NavMesh.SamplePosition(p, out var hit, vehicle ? 2f : 1.2f, filter))
                     continue;
                 var point = hit.position;
                 if (avoid.HasValue && (point - avoid.Value).sqrMagnitude < 2.25f)
@@ -363,18 +368,20 @@ namespace Generals
                 bool taken = false;
                 foreach (var c in claims)
                 {
-                    if ((c.point - point).sqrMagnitude < 1.1f * 1.1f)
+                    float apart = Mathf.Max(spacing, c.spacing);
+                    if ((c.point - point).sqrMagnitude < apart * apart)
                     {
                         taken = true;
                         break;
                     }
                 }
-                if (taken || target.DistanceTo(point) > range * 0.9f)
+                float distance = target.DistanceTo(point);
+                if (taken || distance > range * 0.9f || distance < weapon.minRange)
                     continue;
-                if (!Combat.HasLineOfFire(point + Vector3.up * InfantryUnit.ChestHeight, target, unit.Faction))
+                if (!weapon.indirect && !Combat.HasLineOfFire(point + Vector3.up * eyeHeight, target, unit.Faction))
                     continue;
                 // Дойти можно (не верх стены и не отрезанный кусок NavMesh)
-                if (!NavMesh.CalculatePath(unit.transform.position, point, Nav.Infantry, slotPath) ||
+                if (!NavMesh.CalculatePath(unit.transform.position, point, filter, slotPath) ||
                     slotPath.status != NavMeshPathStatus.PathComplete)
                 {
                     // Поиск пути к недостижимой точке обходит весь NavMesh — после нескольких таких
@@ -384,7 +391,7 @@ namespace Generals
                     continue;
                 }
 
-                claims.Add((unit, point));
+                claims.Add((unit, point, spacing));
                 slot = point;
                 return true;
             }
@@ -436,10 +443,10 @@ namespace Generals
             return along > -2.5f && along < 4.5f && Mathf.Abs(across) < 3f;
         }
 
-        public void ReleaseAttackSlot(InfantryUnit unit, IAreaTarget target)
+        public void ReleaseAttackSlot(IDamageable unit, IAreaTarget target)
         {
             if (target != null && attackSlots.TryGetValue(target, out var claims))
-                claims.RemoveAll(c => c.unit == unit || c.unit == null);
+                claims.RemoveAll(c => c.unit == unit || !Combat.Exists(c.unit));
         }
 
         // Точка на периметре прямоугольника по длине дуги s (обход против часовой)
@@ -546,6 +553,8 @@ namespace Generals
                 structure.ReinforcementPoint.OnDestroyed();
             if (structure.Armoury != null)
                 structure.Armoury.OnDestroyed();
+            if (structure.Factory != null)
+                structure.Factory.OnDestroyed();
             if (structure.AssignedBuilder != null)
                 structure.AssignedBuilder = null;
 
@@ -801,6 +810,81 @@ namespace Generals
             // Посередине, потом по бокам
             float lateral = (column == 0 ? 0f : column == 1 ? -1f : 1f) * lateralSpacing;
             post = gate + inward * (6f + row * rowSpacing) + side * lateral;
+            facing = Quaternion.LookRotation(-inward);
+        }
+
+        // ---------- Техника ----------
+
+        NavMeshPath exitPath;
+
+        /// <summary>
+        /// Машина выезжает из завода со стороны своих ворот. null — выехать нельзя: NavMesh техники
+        /// ещё не готов или (blocked) от завода нет проезда к воротам — его перекрыли здания
+        /// </summary>
+        public VehicleUnit SpawnVehicle(Faction faction, Factory factory, BarracksBehavior behavior, VehicleType type, out bool blocked)
+        {
+            blocked = false;
+            if (!navMesh.HasNavMesh || navMesh.VehicleAgentTypeID < 0)
+                return null;
+
+            var gate = GateOf(faction);
+            var from = factory.Structure.ClosestEdgePoint(gate, 2f);
+            if (!NavMesh.SamplePosition(from, out var hit, 4f, Nav.Vehicles))
+            {
+                blocked = true;
+                return null;
+            }
+            exitPath ??= new NavMeshPath();
+            if (NavMesh.SamplePosition(gate, out var gateHit, 4f, Nav.Vehicles) &&
+                (!NavMesh.CalculatePath(hit.position, gateHit.position, Nav.Vehicles, exitPath) ||
+                 exitPath.status != NavMeshPathStatus.PathComplete))
+            {
+                blocked = true;
+                return null;
+            }
+
+            var look = gate - hit.position;
+            look.y = 0f;
+            var go = new GameObject();
+            go.transform.SetPositionAndRotation(hit.position, look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity);
+            spawned.Add(go);
+            var vehicle = go.AddComponent<VehicleUnit>();
+            vehicle.Init(faction, factory, behavior, type, arena.Material);
+            faction.vehicles.Add(vehicle);
+            factory.Vehicles.Add(vehicle);
+            faction.vehiclesBuilt++;
+            return vehicle;
+        }
+
+        /// <summary>
+        /// Пост машины в обороне: перед своими воротами снаружи, двумя колоннами по бокам от прохода
+        /// (посередине идут отряды), лицом от ворот. Место — порядковый номер машины среди обороняющихся.
+        /// </summary>
+        public void VehiclePost(VehicleUnit vehicle, out Vector3 post, out Quaternion facing)
+        {
+            var faction = vehicle.Faction;
+            int index = 0, slot = 0;
+            foreach (var v in faction.vehicles)
+            {
+                if (v == null || !v.IsAlive || v.Behavior != BarracksBehavior.Defend)
+                    continue;
+                if (v == vehicle)
+                    index = slot;
+                slot++;
+            }
+
+            var gate = GateOf(faction);
+            var center = faction.team == 0 ? arena.BaseOne : arena.BaseTwo;
+            var inward = center - gate;
+            inward.y = 0f;
+            inward.Normalize();
+            var side = new Vector3(inward.z, 0f, -inward.x);
+
+            const float lateral = 5.5f;
+            const float firstRow = 5f;
+            const float rowSpacing = 4.5f;
+            int row = index / 2;
+            post = gate - inward * (firstRow + row * rowSpacing) + side * (index % 2 == 0 ? -lateral : lateral);
             facing = Quaternion.LookRotation(-inward);
         }
 

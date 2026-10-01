@@ -4,7 +4,7 @@ namespace Generals
 {
     /// <summary>
     /// Турель: поворотная башня на основании здания. Сама выбирает цель в радиусе — сначала вражеских
-    /// бойцов, потом здания; стреляет, только когда ствол довёрнут и линия огня свободна.
+    /// бойцов и технику, потом здания; стреляет, только когда ствол довёрнут и линия огня свободна.
     /// Висит на здании турели рядом со Structure.
     /// </summary>
     public class Turret : MonoBehaviour
@@ -102,21 +102,19 @@ namespace Generals
             var enemy = MatchManager.Instance.GetFaction(1 - structure.Faction.team);
             var muzzle = Muzzle;
 
-            float best = float.MaxValue;
-            foreach (var unit in enemy.units)
+            // Бойцы и машины в радиусе — ближайший на линии огня; пушка охотнее бьёт технику
+            var units = Combat.EnemyUnitsNear(enemy, transform.position, weapon.Def.range, 0f,
+                                              Combat.VehicleWeight(weapon.Def));
+            for (int i = 0; i < units.Count && i < 4; i++)
             {
-                if (!Combat.IsAlive(unit))
-                    continue;
-                float d = (unit.transform.position - transform.position).sqrMagnitude;
-                if (d < best && InRange(unit) && Combat.HasLineOfFire(muzzle, unit, structure.Faction))
+                if (InRange(units[i].unit) && Combat.HasLineOfFire(muzzle, units[i].unit, structure.Faction))
                 {
-                    best = d;
-                    Target = unit;
+                    Target = units[i].unit;
+                    return;
                 }
             }
-            if (Target != null)
-                return;
 
+            float best = float.MaxValue;
             foreach (var s in enemy.structures)
             {
                 if (!Combat.IsAlive(s))

@@ -24,6 +24,15 @@ namespace Generals
         /// <summary>Сколько отрядов создано за бой — для их номеров</summary>
         public int squadsCreated;
 
+        /// <summary>Техника стороны</summary>
+        public readonly List<VehicleUnit> vehicles = new();
+        /// <summary>Открытая техника: разведчик — сразу, танк и артиллерия — исследованием в заводе</summary>
+        public readonly List<VehicleType> knownVehicles = new() { VehicleType.Scout };
+        /// <summary>Что сейчас исследуется в заводе (у стороны — одно исследование техники за раз)</summary>
+        public VehicleType? vehicleResearching;
+
+        public bool KnowsVehicle(VehicleType type) => knownVehicles.Contains(type);
+
         /// <summary>Открытое спецоружие (не больше WeaponCatalog.MaxKnownSpecials)</summary>
         public readonly List<SquadWeapon> knownWeapons = new();
         /// <summary>Что сейчас изучается в оружейной (у стороны — одно исследование за раз)</summary>
@@ -56,6 +65,8 @@ namespace Generals
         // Итоги боя
         public int unitsHired;
         public int unitsLost;
+        public int vehiclesBuilt;
+        public int vehiclesLost;
         public int structuresBuilt;
         public int structuresLost;
 

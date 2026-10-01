@@ -10,7 +10,7 @@ namespace Generals
     /// «Атака»). Поведение задаётся на казармы и сразу действует на все их отряды, включая уже нанятые.
     /// Висит на здании казарм рядом со Structure.
     /// </summary>
-    public class Barracks : MonoBehaviour
+    public class Barracks : MonoBehaviour, IUnitProducer
     {
         public Structure Structure { get; private set; }
         public BarracksBehavior Behavior { get; private set; } = BarracksBehavior.Defend;

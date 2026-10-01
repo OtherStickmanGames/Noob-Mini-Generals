@@ -34,6 +34,12 @@ namespace Generals
         public float craterRadius;
         /// <summary>Множитель урона по зданиям и стенам (у каждого оружия своя роль)</summary>
         public float structureDamage = 1f;
+        /// <summary>Множитель урона по технике: пули её почти не берут, гранаты и пушки — хорошо</summary>
+        public float vehicleDamage = 1f;
+        /// <summary>Ближе этого не стреляет, м (навесной огонь)</summary>
+        public float minRange;
+        /// <summary>Навесной огонь: снаряд летит по дуге, линия огня не нужна (через стены)</summary>
+        public bool indirect;
     }
 
     /// <summary>Вооружение отряда: винтовки у всех или спецоружие у SpecialsPerSquad бойцов</summary>
@@ -75,6 +81,8 @@ namespace Generals
             projectileSpeed = 38f,
             accuracy = 0.7f,
             spread = 1.2f,
+            // Винтовка технику почти не берёт
+            vehicleDamage = 0.15f,
             // Пуля выбивает из земли один воксель
             craterRadius = 0.35f,
         };
@@ -91,6 +99,7 @@ namespace Generals
             spread = 1f,
             splashRadius = 1.8f,
             craterRadius = 0.9f,
+            vehicleDamage = 1.3f,
         };
 
         // ---------- Спецоружие отрядов (оружейная → казармы) ----------
@@ -120,6 +129,7 @@ namespace Generals
                 spread = 3f,
                 craterRadius = 0.3f,
                 structureDamage = 0.4f,
+                vehicleDamage = 0.25f,
             },
         };
 
@@ -144,6 +154,8 @@ namespace Generals
                 splashRadius = 1.5f,
                 craterRadius = 0.8f,
                 structureDamage = 2.2f,
+                // Гранатомётчики — охотники на технику
+                vehicleDamage = 1.8f,
             },
         };
 
@@ -167,6 +179,7 @@ namespace Generals
                 spread = 5f,
                 splashRadius = 1.2f,
                 structureDamage = 0.5f,
+                vehicleDamage = 0.4f,
             },
         };
 
@@ -190,6 +203,7 @@ namespace Generals
                 spread = 0.3f,
                 craterRadius = 0.35f,
                 structureDamage = 0.3f,
+                vehicleDamage = 0.35f,
             },
         };
 

@@ -37,6 +37,8 @@ namespace Generals
         public ReinforcementPoint ReinforcementPoint { get; private set; }
         /// <summary>Исследования спецоружия — только у оружейной</summary>
         public Armoury Armoury { get; private set; }
+        /// <summary>Производство и исследование техники — только у машинного завода</summary>
+        public Factory Factory { get; private set; }
 
         /// <summary>Высота модели здания, м</summary>
         public float Height => modelHeight;
@@ -115,6 +117,11 @@ namespace Generals
             {
                 Armoury = gameObject.AddComponent<Armoury>();
                 Armoury.Init(this);
+            }
+            else if (def.type == StructureType.Factory)
+            {
+                Factory = gameObject.AddComponent<Factory>();
+                Factory.Init(this);
             }
 
             if (built)

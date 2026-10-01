@@ -28,6 +28,7 @@ namespace Generals
                 StructureType.Barracks => Barracks(team),
                 StructureType.ReinforcementPoint => ReinforcementPoint(team),
                 StructureType.Armoury => Armoury(team),
+                StructureType.Factory => Factory(team),
                 _ => Turret(team),
             });
         }
@@ -44,6 +45,7 @@ namespace Generals
             StructureType.Barracks => Barracks(team),
             StructureType.ReinforcementPoint => ReinforcementPoint(team),
             StructureType.Armoury => Armoury(team),
+            StructureType.Factory => Factory(team),
             _ => TurretBaseModel(team),
         };
 
@@ -167,6 +169,153 @@ namespace Generals
             m.Box(9, 10, 8, 1, 3, 1, color);
             m.Box(7, 11, 8, 1, 2, 1, color);
             return m;
+        }
+
+        // Машинный завод: ангар с большими воротами (+z), крыша цвета команды, трубы, у ворот —
+        // предупредительная полоса и площадка выезда
+        static Model Factory(int team)
+        {
+            byte color = TeamColor(team), dark = TeamColorDark(team);
+            var m = new Model(16, 14, 20);
+            m.Box(0, 0, 0, 16, 1, 20, Stone);           // площадка
+            m.Box(0, 1, 0, 16, 7, 16, Wall);            // корпус цеха
+            // Крыша-полуарка вдоль z
+            m.Box(0, 8, 0, 16, 1, 16, color);
+            m.Box(2, 9, 0, 12, 1, 16, dark);
+            m.Box(4, 10, 0, 8, 1, 16, color);
+            m.Box(1, 8, 2, 2, 6, 2, Stone);             // трубы
+            m.Box(13, 8, 2, 2, 6, 2, Stone);
+            m.Box(1, 13, 2, 2, 1, 2, dark);
+            m.Box(13, 13, 2, 2, 1, 2, dark);
+            m.Box(3, 1, 15, 10, 6, 1, dark);            // ворота
+            m.Box(3, 7, 15, 10, 1, 1, GoldOre);         // полоса над воротами
+            m.Box(1, 3, 15, 1, 2, 1, Metal);            // окна
+            m.Box(14, 3, 15, 1, 2, 1, Metal);
+            m.Box(4, 1, 17, 8, 1, 1, GoldOre);          // разметка выезда
+            m.Box(4, 1, 19, 8, 1, 1, GoldOre);
+            return m;
+        }
+
+        // ---------- Техника ----------
+        // Машина смотрит в +z. Корпус и поворотная башня — отдельные меши; башня встаёт на корпус
+        // в точке VehicleMount (в вокселях корпуса) своей осью VehicleTurretPivot (в вокселях башни).
+
+        public static Mesh VehicleHull(VehicleType type, int team) => Get($"Hull_{type}_{team}", () => HullModel(type, team));
+        public static Mesh VehicleTurret(VehicleType type, int team) => Get($"VTurret_{type}_{team}", () => VehicleTurretModel(type, team));
+
+        /// <summary>Где на корпусе ось башни, в вокселях корпуса (y — верх корпуса)</summary>
+        public static Vector3 VehicleMount(VehicleType type) => type switch
+        {
+            VehicleType.Scout => new Vector3(3f, 3f, 6.5f),
+            VehicleType.Tank => new Vector3(4f, 4f, 5f),
+            _ => new Vector3(3.5f, 3f, 4f),
+        };
+
+        /// <summary>Ось поворота в вокселях башни</summary>
+        public static Vector3 VehicleTurretPivot(VehicleType type) => type switch
+        {
+            VehicleType.Scout => new Vector3(1.5f, 0f, 1.5f),
+            _ => new Vector3(2.5f, 0f, 2.5f),
+        };
+
+        /// <summary>Дульный срез в вокселях башни</summary>
+        public static Vector3 VehicleMuzzle(VehicleType type) => type switch
+        {
+            VehicleType.Scout => new Vector3(1.5f, 1.5f, 6f),
+            VehicleType.Tank => new Vector3(2.5f, 1.5f, 11f),
+            _ => new Vector3(2.5f, 5.5f, 11f),
+        };
+
+        static Model HullModel(VehicleType type, int team)
+        {
+            byte color = TeamColor(team), dark = TeamColorDark(team);
+            switch (type)
+            {
+                case VehicleType.Scout:
+                {
+                    // Бронемашина на колёсах: кабина спереди, пулемёт сзади на турели
+                    var m = new Model(6, 4, 9);
+                    m.Box(1, 1, 0, 4, 2, 9, color);         // корпус
+                    m.Box(1, 3, 1, 4, 1, 4, dark);          // кабина
+                    m.Box(1, 3, 5, 4, 1, 1, Metal);         // лобовое стекло
+                    foreach (int z in new[] { 1, 6 })
+                    {
+                        m.Box(0, 0, z, 1, 2, 2, dark);      // колёса
+                        m.Box(5, 0, z, 1, 2, 2, dark);
+                    }
+                    m.Box(2, 1, 8, 2, 1, 1, Metal);         // бампер
+                    return m;
+                }
+                case VehicleType.Tank:
+                {
+                    var m = new Model(8, 4, 12);
+                    m.Box(0, 0, 0, 2, 3, 12, dark);         // гусеницы
+                    m.Box(6, 0, 0, 2, 3, 12, dark);
+                    for (int z = 1; z < 12; z += 3)
+                    {
+                        m.Box(0, 0, z, 2, 1, 1, Metal);     // катки
+                        m.Box(6, 0, z, 2, 1, 1, Metal);
+                    }
+                    m.Box(2, 1, 1, 4, 3, 10, color);        // корпус
+                    m.Box(0, 3, 0, 8, 1, 12, color);        // крылья над гусеницами
+                    m.Box(2, 1, 11, 4, 2, 1, dark);         // лобовой лист
+                    m.Box(2, 3, 0, 4, 1, 1, Metal);         // корма
+                    return m;
+                }
+                default:
+                {
+                    // Самоходная гаубица: гусеницы, низкий корпус, упоры сзади
+                    var m = new Model(7, 3, 11);
+                    m.Box(0, 0, 0, 2, 2, 11, dark);
+                    m.Box(5, 0, 0, 2, 2, 11, dark);
+                    for (int z = 1; z < 11; z += 3)
+                    {
+                        m.Box(0, 0, z, 2, 1, 1, Metal);
+                        m.Box(5, 0, z, 2, 1, 1, Metal);
+                    }
+                    m.Box(1, 1, 0, 5, 2, 11, color);
+                    m.Box(0, 2, 0, 7, 1, 1, dark);          // упор
+                    m.Box(1, 2, 10, 5, 1, 1, dark);
+                    return m;
+                }
+            }
+        }
+
+        static Model VehicleTurretModel(VehicleType type, int team)
+        {
+            byte color = TeamColor(team), dark = TeamColorDark(team);
+            switch (type)
+            {
+                case VehicleType.Scout:
+                {
+                    var m = new Model(3, 2, 6);
+                    m.Box(0, 0, 0, 3, 1, 3, Metal);         // турель
+                    m.Box(0, 1, 2, 3, 1, 1, dark);          // щиток
+                    m.Box(1, 1, 1, 1, 1, 5, Metal);         // пулемёт
+                    return m;
+                }
+                case VehicleType.Tank:
+                {
+                    var m = new Model(5, 3, 11);
+                    m.Box(0, 0, 0, 5, 2, 5, color);         // башня
+                    m.Box(0, 2, 0, 5, 1, 5, dark);          // крыша
+                    m.Box(1, 2, 1, 1, 1, 1, Metal);         // люк
+                    m.Box(2, 1, 5, 1, 1, 6, Metal);         // ствол
+                    m.Box(2, 1, 10, 1, 1, 1, dark);         // дульный тормоз
+                    return m;
+                }
+                default:
+                {
+                    // Орудие с поднятым стволом
+                    var m = new Model(5, 6, 12);
+                    m.Box(0, 0, 0, 5, 2, 5, color);         // лафет
+                    m.Box(0, 2, 2, 5, 2, 1, dark);          // щит
+                    for (int i = 0; i < 7; i++)
+                        m.Box(2, 2 + i / 2, 4 + i, 1, 1, 1, Metal);
+                    m.Box(1, 2, 4, 3, 1, 2, Metal);         // казённик
+                    return m;
+                }
+            }
         }
 
         static Model Barracks(int team)

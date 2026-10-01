@@ -187,11 +187,57 @@ namespace Generals
             return Quaternion.AngleAxis(a, axis.normalized) * direction;
         }
 
-        /// <summary>Урон по площади врагам owner: в центре полный, к краю — 40%</summary>
-        /// <summary>Урон оружия по цели: по зданиям и стенам — с множителем оружия</summary>
-        public static float DamageTo(WeaponDef def, IDamageable target, float damage) =>
-            target is IAreaTarget ? damage * def.structureDamage : damage;
+        /// <summary>Урон оружия по цели: по зданиям и стенам, по технике — с множителями оружия</summary>
+        public static float DamageTo(WeaponDef def, IDamageable target, float damage) => target switch
+        {
+            IAreaTarget => damage * def.structureDamage,
+            VehicleUnit => damage * def.vehicleDamage,
+            _ => damage,
+        };
 
+        /// <summary>Объект цели не уничтожен (жива она или нет — неважно)</summary>
+        public static bool Exists(IDamageable target) => target is Object o && o != null;
+
+        // ---------- Вражеские юниты рядом ----------
+
+        static readonly List<(float score, IDamageable unit)> nearbyUnits = new();
+
+        /// <summary>
+        /// Насколько охотнее оружие бьёт технику: противотанковое — машины «вдвое ближе», пули —
+        /// «вдвое дальше» (стреляют по машине, только если пехоты рядом нет)
+        /// </summary>
+        public static float VehicleWeight(WeaponDef def) =>
+            def.vehicleDamage >= 1f ? 0.5f : def.vehicleDamage < 0.5f ? 2f : 1f;
+
+        /// <summary>
+        /// Живые вражеские бойцы и машины не дальше radius по горизонтали от point (и не ближе minRange),
+        /// по возрастанию расстояния, умноженного у машин на vehicleWeight. Общий список — действует до
+        /// следующего вызова.
+        /// </summary>
+        public static List<(float score, IDamageable unit)> EnemyUnitsNear(Faction enemy, Vector3 point, float radius,
+                                                                            float minRange, float vehicleWeight)
+        {
+            nearbyUnits.Clear();
+            foreach (var u in enemy.units)
+                AddNearby(u, point, radius, minRange, 1f);
+            foreach (var v in enemy.vehicles)
+                AddNearby(v, point, radius, minRange, vehicleWeight);
+            nearbyUnits.Sort((a, b) => a.score.CompareTo(b.score));
+            return nearbyUnits;
+        }
+
+        static void AddNearby(IDamageable unit, Vector3 point, float radius, float minRange, float weight)
+        {
+            if (!IsAlive(unit))
+                return;
+            var delta = unit.transform.position - point;
+            delta.y = 0f;
+            float d = delta.magnitude;
+            if (d <= radius && d >= minRange)
+                nearbyUnits.Add((d * weight, unit));
+        }
+
+        /// <summary>Урон по площади врагам owner: в центре полный, к краю — 40%</summary>
         public static void Splash(Vector3 center, WeaponDef def, Faction owner, IDamageable skip)
         {
             float radius = def.splashRadius;
@@ -200,6 +246,9 @@ namespace Generals
             foreach (var u in enemy.units)
                 if (IsAlive(u) && (IDamageable)u != skip)
                     splashTargets.Add(u);
+            foreach (var v in enemy.vehicles)
+                if (IsAlive(v) && (IDamageable)v != skip)
+                    splashTargets.Add(v);
             foreach (var s in enemy.structures)
                 if (IsAlive(s) && (IDamageable)s != skip)
                     splashTargets.Add(s);

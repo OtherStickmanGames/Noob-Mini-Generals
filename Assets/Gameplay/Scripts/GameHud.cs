@@ -158,9 +158,9 @@ namespace Generals
         float ghostHeight;
         BuildGridOverlay gridOverlay;
 
-        // Значки поведения над своими казармами
-        readonly Dictionary<Barracks, RectTransform> badges = new();
-        readonly List<Barracks> badgeCleanup = new();
+        // Значки поведения над своими казармами и заводами
+        readonly Dictionary<IUnitProducer, RectTransform> badges = new();
+        readonly List<IUnitProducer> badgeCleanup = new();
 
         // Полоски прочности: активные по цели и запас свободных
         class HealthBar
@@ -313,9 +313,11 @@ namespace Generals
                 return;
 
             resourcesText.text = $"Базовый ресурс: {Player.BaseResource}     Ценный: {Player.Valuable}     " +
-                                 $"Строители: {Player.builders.Count}     Бойцы: {Player.units.Count}     Точки: {OwnedPoints()}";
+                                 $"Строители: {Player.builders.Count}     Бойцы: {Player.units.Count}     Техника: {Player.vehicles.Count}     " +
+                                 $"Точки: {OwnedPoints()}";
 
             UpdateMatchEnd();
+            WarnBlockedFactories();
 
             // Противник пошёл волной — предупредить заметно (красным и дольше обычного сообщения)
             var ai = Match.EnemyAI;
@@ -410,6 +412,8 @@ namespace Generals
                 $"Время боя: {time / 60}:{time % 60:00}\n" +
                 $"Бойцов нанято: {own.unitsHired}, потеряно: {own.unitsLost}\n" +
                 $"Уничтожено бойцов противника: {enemy.unitsLost}\n" +
+                $"Техники выпущено: {own.vehiclesBuilt}, потеряно: {own.vehiclesLost}\n" +
+                $"Уничтожено техники противника: {enemy.vehiclesLost}\n" +
                 $"Зданий построено: {own.structuresBuilt}, потеряно: {own.structuresLost}\n" +
                 $"Уничтожено зданий противника: {enemy.structuresLost}";
 
@@ -449,6 +453,8 @@ namespace Generals
                         UpdateHealthBar(s);
                     foreach (var w in faction.walls)
                         UpdateHealthBar(w);
+                    foreach (var v in faction.vehicles)
+                        UpdateHealthBar(v);
                     foreach (var u in faction.units)
                         UpdateHealthBar(u);
                 }
@@ -477,9 +483,10 @@ namespace Generals
 
             // Здание и участок стены — полоска шире и над их верхом; боец — короткая над головой
             var area = target as IAreaTarget;
-            var top = area != null
-                ? area.transform.position + Vector3.up * (area.Height + 0.5f)
-                : target.transform.position + Vector3.up * 2.4f;
+            var vehicle = target as VehicleUnit;
+            var top = area != null ? area.transform.position + Vector3.up * (area.Height + 0.5f)
+                    : vehicle != null ? vehicle.transform.position + Vector3.up * (vehicle.Size.y + 0.6f)
+                    : target.transform.position + Vector3.up * 2.4f;
             var screen = rtsCamera.Camera.WorldToScreenPoint(top);
             if (screen.z <= 0f)
                 return;
@@ -494,6 +501,7 @@ namespace Generals
                 float k = healthBarTemplate.sizeDelta.y / 14f;
                 bar.rect.sizeDelta = k * (area != null
                     ? new Vector2(Mathf.Clamp(Mathf.Max(area.HalfExtents.x, area.HalfExtents.y) * 2f * 26f, 70f, 180f), 14f)
+                    : vehicle != null ? new Vector2(80f, 11f)
                     : new Vector2(50f, 9f));
                 bar.fillImage.color = target.Faction == Player ? ownHealthColor : enemyHealthColor;
             }
@@ -926,7 +934,13 @@ namespace Generals
             var reinforcement = own ? selected.ReinforcementPoint : null;
             UpdateReinforcePanel(reinforcement);
             var armoury = own ? selected.Armoury : null;
+            var factory = own ? selected.Factory : null;
+            // Панель над выбранным зданием — список спецоружия оружейной или техники завода
+            bool listPanel = armoury != null || factory != null;
+            if (armouryPanel.activeSelf != listPanel)
+                armouryPanel.SetActive(listPanel);
             UpdateArmouryPanel(armoury);
+            UpdateFactoryPanel(factory);
             // Прочность — справа от названия, цветом стороны
             var hpColor = ColorUtility.ToHtmlStringRGB(own ? ownHealthColor : enemyHealthColor);
             selectionTitle.text = (own ? selected.Def.name : $"{selected.Def.name} (противник)") +
@@ -938,9 +952,10 @@ namespace Generals
             // Найм: у главного здания — строители, у казарм — пехота
             bool canHire = isHq || barracks != null;
             hireButton.gameObject.SetActive(canHire);
-            // Полоса — прогресс найма; у пункта подкрепления — выход очередного бойца, у оружейной — исследование
-            hireProgressFill.transform.parent.gameObject.SetActive(canHire || reinforcement != null || armoury != null);
-            SetBarracksRowsVisible(barracks != null);
+            // Полоса — прогресс найма; у пункта подкрепления — выход очередного бойца, у оружейной — исследование,
+            // у завода — производство машины
+            hireProgressFill.transform.parent.gameObject.SetActive(canHire || reinforcement != null || armoury != null || factory != null);
+            SetProducerRows(barracks != null || factory != null, barracks != null);
             if (barracks != null)
                 UpdateWeaponRow(barracks);
             // Постоянный найм — кнопка другого цвета (переключается даже без денег: закажет, когда появятся)
@@ -1003,6 +1018,11 @@ namespace Generals
                       (armoury.Replacing.HasValue ? $"\nЗатем забудется: {WeaponCatalog.Name(armoury.Replacing.Value)}" : "")
                     : $"Спецоружие для отрядов: открыто {Player.knownWeapons.Count} из {WeaponCatalog.MaxKnownSpecials}";
             }
+            else if (factory != null)
+            {
+                SetHireProgress(factory.Queued > 0 ? factory.Progress : 0f);
+                selectionInfo.text = FactoryInfo(factory);
+            }
             else if (selected.Turret != null)
             {
                 selectionInfo.text = selected.Turret.Target != null
@@ -1018,9 +1038,10 @@ namespace Generals
                 selectionInfo.text = "Постройка противника";
             }
 
-            if (barracks != null)
+            var producer = barracks != null ? barracks : (IUnitProducer)factory;
+            if (producer != null)
             {
-                bool defend = barracks.Behavior == BarracksBehavior.Defend;
+                bool defend = producer.Behavior == BarracksBehavior.Defend;
                 defendButton.image.color = defend ? defendColor : inactiveColor;
                 attackButton.image.color = defend ? inactiveColor : attackColor;
             }
@@ -1149,17 +1170,21 @@ namespace Generals
             hireProgressFill.anchorMax = new Vector2(Mathf.Clamp01(progress), 1f);
         }
 
-        // Строки «Вооружение» и «Оборона / Атака» есть только у казарм; без них панель ниже,
-        // верхние строки опускаются
-        void SetBarracksRowsVisible(bool visible)
+        // Строка «Оборона / Атака» — у казарм и завода, «Вооружение» — только у казарм; без них панель
+        // ниже, верхние строки опускаются
+        void SetProducerRows(bool behavior, bool weapon)
         {
-            if (behaviorRow.activeSelf == visible)
+            if (behaviorRow.activeSelf == behavior && weaponRow.activeSelf == weapon)
                 return;
-            behaviorRow.SetActive(visible);
-            weaponRow.SetActive(visible);
+            float height = selectionHeightWithBehavior;
+            if (!weapon)
+                height -= WeaponRowHeight;
+            if (!behavior)
+                height -= BehaviorRowHeight;
+            behaviorRow.SetActive(behavior);
+            weaponRow.SetActive(weapon);
             var rect = (RectTransform)selectionPanel.transform;
-            rect.sizeDelta = new Vector2(rect.sizeDelta.x,
-                visible ? selectionHeightWithBehavior : selectionHeightWithBehavior - BehaviorRowHeight - WeaponRowHeight);
+            rect.sizeDelta = new Vector2(rect.sizeDelta.x, height);
         }
 
         // Высота строки вооружения с зазором до строки поведения под ней
@@ -1255,11 +1280,15 @@ namespace Generals
         void UpdateArmouryPanel(Armoury armoury)
         {
             shownArmoury = armoury;
-            if (armouryPanel.activeSelf != (armoury != null))
-                armouryPanel.SetActive(armoury != null);
+            // Панель общая с заводом: строки оружейной видны, только когда выбрана она
+            foreach (var r in armouryRows)
+                if (r.rect.gameObject.activeSelf != (armoury != null))
+                    r.rect.gameObject.SetActive(armoury != null);
             if (armoury == null)
             {
                 pendingResearch = null;
+                if (armouryReplaceRow.gameObject.activeSelf)
+                    armouryReplaceRow.gameObject.SetActive(false);
                 return;
             }
 
@@ -1368,6 +1397,176 @@ namespace Generals
             pendingResearch = null;
         }
 
+        // ---------- Машинный завод ----------
+
+        class FactoryRow
+        {
+            public RectTransform rect;
+            public Image background;
+            public TMP_Text label;
+            public Button button;
+            public TMP_Text buttonText;
+            public ButtonPressExtras extras;
+            public VehicleType type;
+        }
+        readonly List<FactoryRow> factoryRows = new();
+        Factory shownFactory;
+        // Предупредили, что у завода перекрыт выезд (заново — когда снова перекроют)
+        readonly HashSet<Factory> exitWarned = new();
+
+        // Над панелью завода — вся техника: название, роль, в очереди; кнопка по состоянию:
+        // «Изучить · 400», «Изучается 40%», «Нанять · 450» (ПКМ / долгое нажатие — постоянно)
+        void UpdateFactoryPanel(Factory factory)
+        {
+            shownFactory = factory;
+            if (factory == null)
+            {
+                foreach (var r in factoryRows)
+                    if (r.rect.gameObject.activeSelf)
+                        r.rect.gameObject.SetActive(false);
+                return;
+            }
+
+            armouryHeader.text = $"Машинный завод · техники {factory.Vehicles.Count}";
+            var types = VehicleCatalog.All;
+            while (factoryRows.Count < types.Count)
+                factoryRows.Add(CreateFactoryRow());
+
+            string how = layout == HudLayout.Mobile ? "долгое нажатие" : "ПКМ";
+            bool built = factory.Structure.IsBuilt;
+            bool researchBusy = Player.vehicleResearching.HasValue;
+            for (int i = 0; i < factoryRows.Count; i++)
+            {
+                var row = factoryRows[i];
+                if (!row.rect.gameObject.activeSelf)
+                    row.rect.gameObject.SetActive(true);
+                var def = VehicleCatalog.Get(types[i]);
+                row.type = def.type;
+                bool known = Player.KnowsVehicle(def.type);
+                bool repeat = factory.RepeatType == def.type;
+                int queued = factory.QueuedOf(def.type);
+
+                string details = def.role;
+                if (queued > 0)
+                    details += $" · в очереди {queued}";
+                if (repeat)
+                    details += " · постоянно";
+                row.label.text = $"{def.name}\n<size=70%>{details}</size>";
+                row.background.color = repeat ? new Color(repeatHireColor.r, repeatHireColor.g, repeatHireColor.b, 0.35f)
+                                     : known ? knownWeaponRowColor : armouryRowColor;
+
+                if (known)
+                {
+                    row.buttonText.text = repeat
+                        ? $"Постоянно · {def.cost}\n<size=58%>{how} — выключить</size>"
+                        : $"Нанять · {def.cost}\n<size=58%>{how} — постоянно</size>";
+                    row.button.interactable = built && factory.Queued < VehicleCatalog.FactoryQueueLimit &&
+                                              Player.CanAfford(def.cost, 0);
+                }
+                else if (factory.Researching == def.type)
+                {
+                    row.buttonText.text = $"Изучается {factory.ResearchProgress:P0}";
+                    row.button.interactable = false;
+                }
+                else if (Player.vehicleResearching == def.type)
+                {
+                    // Изучается в другом заводе
+                    row.buttonText.text = "Изучается";
+                    row.button.interactable = false;
+                }
+                else
+                {
+                    row.buttonText.text = $"Изучить · {def.researchCost}";
+                    row.button.interactable = built && !researchBusy && Player.CanAfford(def.researchCost, 0);
+                }
+            }
+        }
+
+        FactoryRow CreateFactoryRow()
+        {
+            var rect = Instantiate(armouryRowTemplate, armouryRowTemplate.parent);
+            rect.gameObject.SetActive(true);
+            rect.name = "Factory Row " + factoryRows.Count;
+            rect.SetSiblingIndex(armouryReplaceRow.GetSiblingIndex());
+            var button = rect.Find("Research").GetComponent<Button>();
+            var row = new FactoryRow
+            {
+                rect = rect,
+                background = rect.GetComponent<Image>(),
+                label = rect.Find("Label").GetComponentInChildren<TMP_Text>(),
+                button = button,
+                buttonText = button.GetComponentInChildren<TMP_Text>(),
+                extras = button.gameObject.AddComponent<ButtonPressExtras>(),
+            };
+            button.onClick.AddListener(() => FactoryRowClicked(row));
+            // Правая кнопка / долгое нажатие по открытой машине — постоянное производство
+            row.extras.Secondary += () => FactoryRowSecondary(row);
+            return row;
+        }
+
+        void FactoryRowClicked(FactoryRow row)
+        {
+            // Это был конец долгого нажатия (постоянное производство) — не нанимать ещё и кликом
+            if (shownFactory == null || row.extras.ConsumeLongPress())
+                return;
+            bool ok = Player.KnowsVehicle(row.type)
+                ? shownFactory.TryHire(row.type, out var reason)
+                : shownFactory.TryResearch(row.type, out reason);
+            if (!ok)
+                Toast(reason);
+        }
+
+        void FactoryRowSecondary(FactoryRow row)
+        {
+            if (shownFactory == null)
+                return;
+            var def = VehicleCatalog.Get(row.type);
+            if (!Player.KnowsVehicle(row.type))
+            {
+                Toast($"Сначала изучите: {def.name}");
+                return;
+            }
+            shownFactory.ToggleRepeat(row.type);
+            Toast(shownFactory.RepeatType == row.type
+                ? $"Постоянное производство: {def.name}"
+                : "Постоянное производство выключено");
+        }
+
+        string FactoryInfo(Factory factory)
+        {
+            string production;
+            if (factory.ExitBlocked)
+                production = $"<color=#{ColorUtility.ToHtmlStringRGB(warningColor)}>Выезд перекрыт — освободите проезд к воротам</color>";
+            else if (factory.Queued > 0)
+                production = $"Производится: {VehicleCatalog.Get(factory.Queue[0]).name} {factory.Progress:P0}   " +
+                             $"В очереди: {factory.Queued}/{VehicleCatalog.FactoryQueueLimit}";
+            else
+                production = $"Техники: {factory.Vehicles.Count}";
+            if (factory.Researching.HasValue)
+                production += $"\nИзучается: {VehicleCatalog.Get(factory.Researching.Value).name} {factory.ResearchProgress:P0}";
+            string behavior = factory.Behavior == BarracksBehavior.Defend
+                ? "Оборона: стоят перед воротами"
+                : "Атака: идут на врага";
+            return $"{production}\n{behavior}";
+        }
+
+        // Выезд из завода перекрыт зданиями — сказать один раз (машина ждёт готовой)
+        void WarnBlockedFactories()
+        {
+            foreach (var s in Player.structures)
+            {
+                if (s == null || s.Factory == null)
+                    continue;
+                if (!s.Factory.ExitBlocked)
+                {
+                    exitWarned.Remove(s.Factory);
+                    continue;
+                }
+                if (exitWarned.Add(s.Factory))
+                    Toast("Техника не может выехать из завода — освободите проезд к воротам", warningColor, 4f);
+            }
+        }
+
         void SelectWeapon(int index)
         {
             var barracks = selected != null && selected.Faction == Player ? selected.Barracks : null;
@@ -1401,31 +1600,36 @@ namespace Generals
 
         void SetSelectedBehavior(BarracksBehavior behavior)
         {
-            if (selected != null && selected.Barracks != null && selected.Faction == Player)
+            if (selected == null || selected.Faction != Player)
+                return;
+            if (selected.Barracks != null)
                 selected.Barracks.SetBehavior(behavior);
+            else if (selected.Factory != null)
+                selected.Factory.SetBehavior(behavior);
         }
 
-        // ---------- Значки над казармами ----------
+        // ---------- Значки над казармами и заводами ----------
 
-        // Над каждыми своими казармами — плашка с текущим поведением; при установке здания скрыты
+        // Над каждыми своими казармами и заводом — плашка с текущим поведением; при установке здания скрыты
         void UpdateBadges()
         {
             foreach (var s in Player.structures)
             {
-                if (s == null || s.Barracks == null || badges.ContainsKey(s.Barracks))
+                var producer = s == null ? null : s.Barracks != null ? s.Barracks : (IUnitProducer)s.Factory;
+                if (producer == null || (producer as UnityEngine.Object) == null || badges.ContainsKey(producer))
                     continue;
                 var badge = Instantiate(barracksBadgeTemplate, barracksBadgeTemplate.parent);
                 badge.name = "Badge " + s.name;
                 // Сразу за образцом: под панелями и кнопками интерфейса
                 badge.SetSiblingIndex(barracksBadgeTemplate.GetSiblingIndex() + 1);
-                badges.Add(s.Barracks, badge);
+                badges.Add(producer, badge);
             }
 
             var cam = rtsCamera.Camera;
             badgeCleanup.Clear();
             foreach (var (barracks, badge) in badges)
             {
-                if (barracks == null)
+                if ((barracks as UnityEngine.Object) == null)
                 {
                     badgeCleanup.Add(barracks);
                     if (badge != null)

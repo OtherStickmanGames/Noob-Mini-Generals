@@ -62,7 +62,8 @@ namespace Generals
         public BarracksBehavior Behavior => Barracks != null ? Barracks.Behavior : ownBehavior;
 
         public SquadOrder Order { get; private set; }
-        public InfantryUnit Threat { get; private set; }
+        /// <summary>Вражеский боец или машина, на которых идёт отряд</summary>
+        public IDamageable Threat { get; private set; }
         public IAreaTarget AreaTarget { get; private set; }
 
         public bool IsAlive => Members.Count > 0;
@@ -182,7 +183,7 @@ namespace Generals
             var leader = Members[0];
             bool wallBehind = AreaTarget is WallSegment && match.IsInsideWalls(center, enemy);
             if (!Combat.IsAlive(AreaTarget) || wallBehind)
-                SetAreaTarget(match.ChooseAttackTarget(leader, null));
+                SetAreaTarget(match.ChooseAttackTarget(Faction, leader.transform.position, null));
 
             if (AreaTarget != null)
             {
@@ -217,7 +218,7 @@ namespace Generals
         /// <summary>Вокруг цели не нашлось места — отряд берёт другую</summary>
         public void RetargetArea(InfantryUnit leader, IAreaTarget failed)
         {
-            SetAreaTarget(MatchManager.Instance.ChooseAttackTarget(leader, failed));
+            SetAreaTarget(MatchManager.Instance.ChooseAttackTarget(Faction, leader.transform.position, failed));
         }
 
         void SetAreaTarget(IAreaTarget target)
@@ -230,7 +231,7 @@ namespace Generals
                     m.ReleaseSlot();
         }
 
-        void EngageUnits(InfantryUnit threat, Vector3 center)
+        void EngageUnits(IDamageable threat, Vector3 center)
         {
             Order = SquadOrder.EngageUnits;
             Threat = threat;
@@ -251,23 +252,17 @@ namespace Generals
         }
 
         /// <summary>
-        /// Ближайший вражеский боец в радиусе, до которого отряд может добраться: видит его кто-то из
+        /// Ближайший вражеский боец или машина в радиусе, до которых отряд может добраться: видит кто-то из
         /// бойцов или до него есть короткий путь (не в обход через ворота на другом конце базы).
         /// Враг за стеной — не цель: атакующие продолжат бить постройки (ту же стену), защитники —
         /// стоять на посту. Иначе обе стороны стоят у стены и ждут друг друга.
         /// </summary>
-        InfantryUnit NearestEnemyUnit(Faction enemy, Vector3 around, float radius)
+        IDamageable NearestEnemyUnit(Faction enemy, Vector3 around, float radius)
         {
+            // Бойцы и машины; машины — охотнее, если у отряда противотанковое спецоружие
             candidates.Clear();
-            foreach (var u in enemy.units)
-            {
-                if (!Combat.IsAlive(u))
-                    continue;
-                float d = (u.transform.position - around).sqrMagnitude;
-                if (d < radius * radius)
-                    candidates.Add((d, u));
-            }
-            candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+            candidates.AddRange(Combat.EnemyUnitsNear(enemy, around, radius, 0f,
+                                                      Combat.VehicleWeight(WeaponCatalog.Def(Weapon))));
 
             // Проверяем только несколько ближайших — путь дорогой
             for (int i = 0; i < candidates.Count && i < 3; i++)
@@ -276,7 +271,7 @@ namespace Generals
             return null;
         }
 
-        bool CanFight(InfantryUnit enemy)
+        bool CanFight(IDamageable enemy)
         {
             foreach (var m in Members)
                 if (Combat.HasLineOfFire(m.transform.position + Vector3.up * InfantryUnit.ChestHeight, enemy, Faction))
@@ -300,7 +295,7 @@ namespace Generals
             return length <= flat.magnitude * 1.5f + 6f;
         }
 
-        readonly List<(float distance, InfantryUnit unit)> candidates = new();
+        readonly List<(float distance, IDamageable unit)> candidates = new();
         static NavMeshPath path;
         static readonly ProfilerMarker ThinkMarker = new("Squad.Think");
         static readonly ProfilerMarker CanFightPathMarker = new("Squad.CanFight path");
