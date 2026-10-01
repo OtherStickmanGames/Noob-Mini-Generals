@@ -605,7 +605,9 @@ namespace Generals
             float bestDistance = float.MaxValue;
             foreach (var s in builder.Faction.structures)
             {
-                if (s.IsBuilt || s.AssignedBuilder != null || Time.time < s.UnreachableUntil)
+                // Только что заложенную — через секунду: пока она не вырезана из NavMesh, путь к её дальней
+                // стороне находится сквозь неё, а потом у строителя обрывается
+                if (s.IsBuilt || s.AssignedBuilder != null || Time.time < s.UnreachableUntil || Time.time - s.PlacedTime < 1f)
                     continue;
                 float d = s.DistanceTo(builder.transform.position);
                 if (d < bestDistance)
@@ -624,14 +626,14 @@ namespace Generals
         public event System.Action<Structure> SiteUnreachable;
 
         /// <summary>К стройке нет пути: несколько секунд её никто не берёт, потом снова пробуют</summary>
-        public void ReportUnreachableSite(Structure site)
+        public void ReportUnreachableSite(Structure site, string details)
         {
             site.UnreachableUntil = Time.time + UnreachableSiteRetry;
             if (site.UnreachableReported)
                 return;
             site.UnreachableReported = true;
             Debug.Log($"[Стройка] Строителям стороны {site.Faction.team} не пройти к «{site.Def.name}» " +
-                      $"в {site.transform.position} — повтор через {UnreachableSiteRetry} с");
+                      $"в {site.transform.position} — повтор через {UnreachableSiteRetry} с ({details})");
             SiteUnreachable?.Invoke(site);
         }
 

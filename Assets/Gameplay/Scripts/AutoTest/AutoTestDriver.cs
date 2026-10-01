@@ -134,6 +134,11 @@ namespace Generals
                 CheckUnits();
                 CheckWaves();
             }
+            if (Time.time >= nextBuilderLog)
+            {
+                nextBuilderLog = Time.time + 60f;
+                LogBuilders();
+            }
             if (Time.time >= nextShot)
             {
                 nextShot = Time.time + screenshotInterval;
@@ -146,6 +151,26 @@ namespace Generals
         readonly int[] lastVehiclesBuilt = new int[2];
         readonly int[] lastKnownVehicles = { 1, 1 };
         readonly bool[] hadFactory = new bool[2];
+
+        float nextBuilderLog;
+
+        // Сводка по строителям: где, какая стройка, далеко ли до неё, растёт ли её прогресс
+        void LogBuilders()
+        {
+            foreach (var f in new[] { match.Player, match.Enemy })
+            {
+                foreach (var b in f.builders)
+                {
+                    if (b == null)
+                        continue;
+                    var t = b.Target;
+                    Log(t == null
+                        ? $"Строитель стороны {f.team} в {Round(b.transform.position)}: без работы"
+                        : $"Строитель стороны {f.team} в {Round(b.transform.position)}: «{t.Def.name}» в {Round(t.transform.position)}, " +
+                          $"до неё {t.DistanceTo(b.transform.position):0.0} м, готово {t.Progress:P0}");
+                }
+            }
+        }
 
         void CheckWaves()
         {
@@ -226,8 +251,16 @@ namespace Generals
             }
             else if (Time.time - last.time > StuckWindow && reportedStuck.Add(key))
             {
+                // Проверочный путь до своих ворот: полный — значит, агент не нашёл путь сам (ограничение
+                // поиска), неполный — настоящий тупик
+                var gatePath = new NavMeshPath();
+                var gate = faction.team == 0 ? match.Arena.GateOne : match.Arena.GateTwo;
+                var filter = new NavMeshQueryFilter { agentTypeID = agent.agentTypeID, areaMask = NavMesh.AllAreas };
+                string toGate = NavMesh.SamplePosition(gate, out var gateHit, 4f, filter) &&
+                                NavMesh.CalculatePath(position, gateHit.position, filter, gatePath)
+                    ? $"{gatePath.status}, углов {gatePath.corners.Length}" : "не найден";
                 Problem($"сторона {faction.team}: застрял в {Round(position)} ({details}), до цели {agent.remainingDistance:0.0} м, " +
-                        $"путь {agent.pathStatus}, назначение {Round(agent.destination)}");
+                        $"путь {agent.pathStatus}, назначение {Round(agent.destination)}, проверочный путь до ворот: {toGate}");
             }
 
             // Атакующий долго сидит внутри своих стен

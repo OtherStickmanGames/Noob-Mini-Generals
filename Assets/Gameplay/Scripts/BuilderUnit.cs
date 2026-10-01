@@ -10,7 +10,7 @@ namespace Generals
     /// </summary>
     public class BuilderUnit : MonoBehaviour
     {
-        const float WorkDistance = 1.4f;
+        const float WorkDistance = 2f;
         const float RetargetInterval = 0.5f;
         // Агент встаёт у точки с такой погрешностью: точка работы выбирается с запасом на неё,
         // а стоящий у своей точки строитель работает, даже если до здания чуть дальше WorkDistance
@@ -29,6 +29,15 @@ namespace Generals
 
         NavMeshPath path;
         Vector3? workPoint;
+        // Точки этой стройки, до которых строитель так и не дошёл — больше их не выбирать
+        readonly List<Vector3> failedPoints = new();
+        float stuckTime;
+        // Последний поиск точки: кандидатов, не на NavMesh, отброшено, без пути — для сообщения в консоль
+        Unity.Mathematics.int4 searchStats;
+        int searchOnWall, searchFailed;
+        // Точка работы — конец неполного пути у самой стройки: неполный путь агента тогда не обрыв
+        bool pointByPartialPath;
+        float searchFar;
         readonly List<(float distance, Vector3 position)>[] sideCandidates =
             { new(), new(), new(), new() };
 
@@ -61,6 +70,9 @@ namespace Generals
             agent.speed = 3.5f;
             agent.angularSpeed = 540f;
             agent.acceleration = 12f;
+            // Сквозь своих и чужих бойцов, как рабочие в RTS: толпа у ворот не должна задерживать стройку
+            // (автотест: строитель вставал в толпе и одну за другой отбрасывал все точки у стройки)
+            agent.obstacleAvoidanceType = ObstacleAvoidanceType.NoObstacleAvoidance;
         }
 
         void Update()
@@ -100,13 +112,40 @@ namespace Generals
                 Target.AddWork(Time.deltaTime);
             }
             else if (!agent.pathPending &&
-                     (agent.remainingDistance < 0.3f || agent.pathStatus != NavMeshPathStatus.PathComplete))
+                     (agent.remainingDistance < 0.3f || (agent.pathStatus != NavMeshPathStatus.PathComplete && !pointByPartialPath) || Stuck()))
             {
-                // Дошёл, но до здания далеко, или путь оборвался (новое здание, пролом) — точка заново
+                // Дошёл, но до здания далеко, стоит на месте (толпа, вставший в проходе) или путь оборвался
+                // (новое здание, пролом) — другая точка; эту больше не брать (автотест: строитель сотни
+                // секунд стоял в 1.7 и 5.2 м от стройки, снова и снова выбирая ту же точку)
                 repathTimer -= Time.deltaTime;
                 if (repathTimer <= 0f)
                 {
                     repathTimer = RetargetInterval;
+                    // Путь агента оборвался (после пересборки NavMesh агент ищет путь сам, с ограничением на
+                    // число узлов, и длинный путь через ворота вокруг стены у него неполный) — полный путь
+                    // проверочным поиском от текущего места, к той же точке
+                    if (workPoint.HasValue && !pointByPartialPath && agent.pathStatus != NavMeshPathStatus.PathComplete &&
+                        NavMesh.CalculatePath(transform.position, workPoint.Value, Nav.Infantry, path) &&
+                        path.status == NavMeshPathStatus.PathComplete)
+                    {
+                        // Путь есть — идти к той же точке (готовым путём или, если агент его не принял, своим)
+                        if (!agent.SetPath(path))
+                            agent.SetDestination(workPoint.Value);
+                        stuckTime = 0f;
+                        return;
+                    }
+                    // Точка недостижима, только если дошёл до конца пути, а стройка далеко, или пути к ней
+                    // нет; просто стоял — пробует ту же снова
+                    if (workPoint.HasValue && stuckTime <= 2f)
+                    {
+                        failedPoints.Add(workPoint.Value);
+                        if (failedPoints.Count <= 2)
+                            Debug.Log($"[Стройка] Строитель стороны {Faction.team} отбросил точку {workPoint.Value} у «{Target.Def.name}»: " +
+                                      $"путь агента {agent.pathStatus}, осталось {agent.remainingDistance:0.00}, до точки " +
+                                      $"{Vector3.Distance(transform.position, workPoint.Value):0.00}, до стройки {Target.DistanceTo(transform.position):0.00}, " +
+                                      $"цель агента {agent.destination}, углов пути {agent.path.corners.Length}, на NavMesh {agent.isOnNavMesh}");
+                    }
+                    stuckTime = 0f;
                     GoToWorkPoint();
                 }
             }
@@ -120,14 +159,19 @@ namespace Generals
                 Target.UnreachableReported = false;
                 workPoint = point;
                 agent.isStopped = false;
-                agent.SetDestination(point);
+                // Найденный полный путь — агенту напрямую: свой путь агент ищет с ограничением на число
+                // узлов, и длинный путь (через ворота вокруг стены) у него обрывался на полдороге
+                if (!agent.SetPath(path))
+                    agent.SetDestination(point);
                 return;
             }
 
             var site = Target;
             Release();
             retargetTimer = RetargetInterval;
-            MatchManager.Instance.ReportUnreachableSite(site);
+            MatchManager.Instance.ReportUnreachableSite(site,
+                $"точек {searchStats.x}, не на NavMesh {searchStats.y}, далеко {searchStats.z} (например {searchFar:0.00} м), на стене {searchOnWall}, уже не дошёл {searchFailed}, " +
+                $"путь не найден {searchStats.w}; строитель в {transform.position}");
         }
 
         /// <summary>
@@ -141,6 +185,10 @@ namespace Generals
         /// </summary>
         bool FindWorkPoint(Structure site, out Vector3 point)
         {
+            pointByPartialPath = false;
+            searchStats = default;
+            searchOnWall = searchFailed = 0;
+            searchFar = 0f;
             var match = MatchManager.Instance;
             var center = site.transform.position;
             var half = site.HalfExtents;
@@ -161,9 +209,28 @@ namespace Generals
                         ? center + new Vector3(t, 0f, sign * (half.y + EdgeMargin))
                         : center + new Vector3(sign * (half.x + EdgeMargin), 0f, t);
 
-                    if (!NavMesh.SamplePosition(OnGround(candidate), out var hit, SampleRadius, Nav.Infantry) ||
-                        site.DistanceTo(hit.position) > MaxPointDistance || match.IsOnWall(hit.position))
+                    searchStats.x++;
+                    if (!NavMesh.SamplePosition(OnGround(candidate), out var hit, SampleRadius, Nav.Infantry))
+                    {
+                        searchStats.y++;
                         continue;
+                    }
+                    if (site.DistanceTo(hit.position) > MaxPointDistance)
+                    {
+                        searchStats.z++;
+                        searchFar = site.DistanceTo(hit.position);
+                        continue;
+                    }
+                    if (match.IsOnWall(hit.position))
+                    {
+                        searchOnWall++;
+                        continue;
+                    }
+                    if (Failed(hit.position))
+                    {
+                        searchFailed++;
+                        continue;
+                    }
                     sideCandidates[side].Add(((hit.position - transform.position).sqrMagnitude, hit.position));
                 }
                 sideCandidates[side].Sort((a, b) => a.distance.CompareTo(b.distance));
@@ -191,6 +258,7 @@ namespace Generals
                         point = position;
                         return true;
                     }
+                    searchStats.w++;
 
                     // Неполный путь кончается в ближайшей достижимой точке — вдруг она у самой стройки
                     var corners = path.corners;
@@ -200,6 +268,7 @@ namespace Generals
                         if (site.DistanceTo(end) <= MaxPointDistance && !match.IsOnWall(end))
                         {
                             point = end;
+                            pointByPartialPath = true;
                             return true;
                         }
                     }
@@ -210,6 +279,27 @@ namespace Generals
             }
             point = default;
             return false;
+        }
+
+        bool Failed(Vector3 point)
+        {
+            foreach (var p in failedPoints)
+                if ((p - point).sqrMagnitude < 0.8f * 0.8f)
+                    return true;
+            return false;
+        }
+
+        // Должен идти (путь есть, до точки далеко), но почти не двигается дольше 2 с
+        bool Stuck()
+        {
+            bool moving = agent.hasPath && !agent.isStopped && agent.remainingDistance > 0.5f;
+            if (!moving || agent.velocity.sqrMagnitude > 0.2f * 0.2f)
+            {
+                stuckTime = 0f;
+                return false;
+            }
+            stuckTime += Time.deltaTime;
+            return stuckTime > 2f;
         }
 
         bool AtWorkPoint()
@@ -246,6 +336,7 @@ namespace Generals
                 Target.AssignedBuilder = null;
             Target = null;
             workPoint = null;
+            failedPoints.Clear();
             retargetTimer = 0f;
         }
 

@@ -52,10 +52,11 @@ namespace Generals
             StructureType.Turret,
             StructureType.Extractor,
             StructureType.Barracks,
+            // Завод — пока на базе есть место под ангар 8×10 (автотест: после оружейной места не было)
+            StructureType.Factory,
             StructureType.Turret,
             StructureType.ReinforcementPoint,
             StructureType.Armoury,
-            StructureType.Factory,
             null,
             StructureType.Extractor,
             StructureType.Turret,
@@ -116,15 +117,15 @@ namespace Generals
                 return;
             timer = settings.thinkInterval;
 
-            var next = NextBuildItem(out bool hasNext);
+            var next = NextBuildItem(out bool hasNext, out bool waiting);
             float reserve = 0f;
             if (hasNext)
             {
                 int cost = next.HasValue ? StructureCatalog.Get(next.Value).costBase : StructureCatalog.BuilderCost;
-                if (me.CanAfford(cost, 0))
+                if (!waiting && me.CanAfford(cost, 0))
                     DoBuildItem(next);
                 else
-                    reserve = cost * 0.6f;
+                    reserve = cost;
             }
 
             ReinforceSquads(reserve);
@@ -137,16 +138,16 @@ namespace Generals
 
         // ---------- Экономика ----------
 
-        // Первый невыполненный пункт списка; пока строек больше, чем строителей, — ждать
-        StructureType? NextBuildItem(out bool hasNext)
+        // Первый невыполненный пункт списка; waiting — строек больше, чем строителей: ставить ещё
+        // рано, но деньги на этот пункт уже откладываются (иначе их съедал найм и стройка вставала)
+        StructureType? NextBuildItem(out bool hasNext, out bool waiting)
         {
             hasNext = false;
             int unfinished = 0;
             foreach (var s in me.structures)
                 if (s != null && !s.IsBuilt)
                     unfinished++;
-            if (unfinished >= Mathf.Max(1, me.builders.Count))
-                return null;
+            waiting = unfinished >= Mathf.Max(1, me.builders.Count);
 
             var required = new Dictionary<int, int>();
             foreach (var item in BuildOrder)
@@ -192,11 +193,14 @@ namespace Generals
             {
                 // Раз на тип: план стройки встал — причину видно в консоли (и в отчёте автотеста)
                 noSpotLogged = def.type;
-                Debug.Log($"[ИИ] Стороне {me.team} негде поставить «{def.name}» — стройка по списку ждёт");
+                Debug.Log($"[ИИ] Стороне {me.team} негде поставить «{def.name}» — стройка по списку ждёт " +
+                          $"(мест по правилам и зазору: {spotsByRules}, проходы: {lastPassageReason ?? "—"})");
             }
         }
 
         StructureType? noSpotLogged;
+        int spotsByRules;
+        string lastPassageReason;
 
         // Отряды, вернувшиеся в оборону потрёпанными, пополняются в пункте подкрепления
         void ReinforceSquads(float reserve)
@@ -242,6 +246,18 @@ namespace Generals
 
         void HireInfantry(float reserve)
         {
+            // Копить не больше, чем нужно на следующую волну (плюс отряд на защиту): лишняя толпа у
+            // ворот только ест деньги стройки (автотест: 18 отрядов у ворот и ни одного нового здания)
+            int squads = 0;
+            foreach (var squad in me.squads)
+                if (squad.IsAlive && squad.Behavior == BarracksBehavior.Defend)
+                    squads++;
+            foreach (var s in me.structures)
+                if (s != null && s.Barracks != null)
+                    squads += s.Barracks.Queued;
+            if (squads >= waveSize + 1)
+                return;
+
             foreach (var s in me.structures)
             {
                 var barracks = s != null ? s.Barracks : null;
@@ -333,6 +349,8 @@ namespace Generals
 
             // Первые несколько подходящих мест от центра — из них случайное
             spots.Clear();
+            spotsByRules = 0;
+            lastPassageReason = null;
             var grid = match.Grid;
             var start = BuildGrid.MinFromCenter(def, center);
             for (int r = 0; r <= 24 && spots.Count < 6; r++)
@@ -345,11 +363,15 @@ namespace Generals
                             continue;
                         var candidate = start + new int2(dx, dz);
                         // Проходы (дорогая проверка) — последней
-                        if (grid.CanPlace(me, def, candidate, out _, out _, checkPassages: false) &&
-                            grid.HasClearance(candidate, def.footprint, Clearance) &&
-                            !InCorridor(candidate, def.footprint) &&
-                            grid.KeepsPassages(me, def, candidate, out _))
+                        if (!grid.CanPlace(me, def, candidate, out _, out _, checkPassages: false) ||
+                            !grid.HasClearance(candidate, def.footprint, Clearance) ||
+                            InCorridor(candidate, def.footprint))
+                            continue;
+                        spotsByRules++;
+                        if (grid.KeepsPassages(me, def, candidate, out var passage))
                             spots.Add(candidate);
+                        else
+                            lastPassageReason = passage;
                     }
                 }
             }

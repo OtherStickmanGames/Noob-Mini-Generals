@@ -48,6 +48,8 @@ namespace Generals
         BarracksBehavior ownBehavior;
         float thinkTimer;
         float navCheckTimer;
+        float partialTimer;
+        Vector3 navDestination;
         float stuckTime;
         Vector3 destination = new(float.MaxValue, 0f, 0f);
         bool stopped;
@@ -144,6 +146,7 @@ namespace Generals
                 return;
 
             KeepOnNavMesh();
+            ContinuePartialPath();
             CheckStuck();
             weapon.Tick(Time.deltaTime);
 
@@ -369,6 +372,21 @@ namespace Generals
             destination = new Vector3(float.MaxValue, 0f, 0f);
         }
 
+        // Путь агент ищет с ограничением на число узлов: длинный путь (через ворота, вокруг стены)
+        // обрывается на полдороге (PathPartial), хотя полный есть. Дошёл до конца обрывка — продолжение
+        // от текущего места к той же цели (не чаще раза в 2 с: к недостижимой цели поиск дорогой)
+        void ContinuePartialPath()
+        {
+            partialTimer -= Time.deltaTime;
+            if (partialTimer > 0f || !agent.isOnNavMesh || agent.pathPending || agent.isStopped ||
+                agent.pathStatus != NavMeshPathStatus.PathPartial)
+                return;
+            if (agent.remainingDistance > 1.5f || (navDestination - transform.position).sqrMagnitude < 4f)
+                return;
+            partialTimer = 2f;
+            agent.SetDestination(navDestination);
+        }
+
         void MoveTo(Vector3 point)
         {
             if (!agent.isOnNavMesh)
@@ -380,6 +398,7 @@ namespace Generals
             if (!NavMesh.SamplePosition(point, out var hit, 4f, Nav.Vehicles))
                 return;
             destination = point;
+            navDestination = hit.position;
             agent.SetDestination(hit.position);
         }
 

@@ -25,6 +25,8 @@ namespace Generals
         /// <summary>Для шахты на точке захвата</summary>
         public CapturePoint CapturePoint { get; private set; }
         public BuilderUnit AssignedBuilder { get; set; }
+        /// <summary>Когда заложено (Time.time): вырезаться из NavMesh здание начинает, простояв 0.5 с</summary>
+        public float PlacedTime { get; private set; }
         /// <summary>Строитель не нашёл пути к стройке: до этого момента её никто не берёт</summary>
         public float UnreachableUntil { get; set; } = float.NegativeInfinity;
         /// <summary>Игрока уже предупредили, что к стройке не пройти</summary>
@@ -56,6 +58,7 @@ namespace Generals
                          float rotationY, bool built, CapturePoint capturePoint, Material material)
         {
             Def = def;
+            PlacedTime = Time.time;
             Faction = faction;
             MinCell = minCell;
             CapturePoint = capturePoint;
