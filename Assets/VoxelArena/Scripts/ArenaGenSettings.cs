@@ -66,7 +66,8 @@ public struct ArenaGenSettings
     {
         version = CurrentVersion,
         seed = 1,
-        biome = ArenaBiomeChoice.BySeed,
+        // Пустыня — выбор автора; другой биом или «по сиду» — в инспекторе арены
+        biome = ArenaBiomeChoice.Desert,
         borderMinWidth = 8,
         borderMaxWidth = 44,
         borderNoiseScale = 0.022f,
