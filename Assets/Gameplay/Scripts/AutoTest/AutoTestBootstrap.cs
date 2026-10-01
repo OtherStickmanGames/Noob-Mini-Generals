@@ -23,6 +23,7 @@ namespace Generals
             driver.timeScale = Float(args, "-autotestScale", driver.timeScale);
             driver.outputDir = Arg(args, "-autotestOut") ?? driver.outputDir;
             driver.bonusIncome = Float(args, "-autotestBonus", 0f);
+            driver.peaceSeconds = Float(args, "-autotestPeace", 0f);
             QualitySettings.vSyncCount = 0;
             Application.targetFrameRate = -1;
         }

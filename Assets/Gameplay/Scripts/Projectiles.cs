@@ -32,6 +32,9 @@ namespace Generals
         const float ShellLength = 0.36f;
         const float ShellTrailInterval = 0.03f;
         const int BatchSize = 1023;
+        // Воронка — не глубже вокселя от исходной земли: агент перешагивает уступ в один воксель, а
+        // поле глубоких воронок отрезало базу от выхода (автотест: армия не выходила из ворот)
+        const int CraterDepth = 1;
 
         static readonly Color BulletColor = new(1f, 0.86f, 0.45f, 1f);
         static readonly Color ShellColor = new(1f, 0.55f, 0.2f, 1f);
@@ -215,7 +218,7 @@ namespace Generals
             {
                 // Сначала цвет выбитого вокселя, потом сама воронка
                 byte slot = Effects.GroundSlot(arena, point, normal);
-                arena.Explode(point - normal * (shot.def.craterRadius * 0.5f), shot.def.craterRadius);
+                arena.Explode(point - normal * (shot.def.craterRadius * 0.5f), shot.def.craterRadius, CraterDepth);
                 effects.GroundImpact(point, normal, slot, 0.5f);
             }
             else
@@ -239,7 +242,7 @@ namespace Generals
             // своя стена не страдает
             if (terrain)
             {
-                arena.Explode(point - normal * (shot.def.craterRadius * 0.4f), shot.def.craterRadius);
+                arena.Explode(point - normal * (shot.def.craterRadius * 0.4f), shot.def.craterRadius, CraterDepth);
                 effects.GroundImpact(point, normal, slot, 1.6f);
             }
         }

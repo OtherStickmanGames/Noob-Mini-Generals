@@ -157,14 +157,19 @@ namespace Generals
         {
             int team = faction.team;
             PrepareBox(team);
-            MarkBlocked(min, def.footprint);
-
             var gate = layout.gates[team];
             var structures = MatchManager.Instance.GetFaction(team).structures;
 
+            // Сколько свободной земли внутри стен отрезано от ворот — до здания и с ним
+            Flood(gate, InfantryClearance, out _);
+            int cutBefore = CutOffCells(faction);
+            MarkBlocked(min, def.footprint);
             Flood(gate, InfantryClearance, out bool exit);
             if (!exit)
                 return "Перекроет выход с базы";
+            // Новый отрезанный кусок базы — ловушка: оказавшиеся там бойцы не выйдут
+            if (CutOffCells(faction) - cutBefore > PocketTolerance)
+                return "Отрежет часть базы от ворот";
             if (!Reachable(min, def.footprint, InfantryClearance + 1))
                 return "Сюда не подойдёт строитель";
             foreach (var s in structures)
@@ -186,7 +191,27 @@ namespace Generals
             return null;
         }
 
+        // Сколько клеток с просветом могут отрезаться в нише (угол между зданием и стеной) — такие
+        // мелкие ниши не мешают, а запрещать их — значит запрещать почти любое место у стены
+        const int PocketTolerance = 12;
+
         bool OnWall(Structure s) => wallCells[Idx(s.MinCell.x, s.MinCell.y)];
+
+        // Клетки внутри своих стен, по которым можно пройти, но до которых не дошла заливка от ворот
+        int CutOffCells(Faction faction)
+        {
+            int n = 0;
+            for (int bz = 0; bz < boxSize.y; bz++)
+            {
+                for (int bx = 0; bx < boxSize.x; bx++)
+                {
+                    int k = bz * boxSize.x + bx;
+                    if (walkCells[k] && !reached[k] && InsideOwnWalls(faction, Idx(boxMin.x + bx, boxMin.y + bz)))
+                        n++;
+                }
+            }
+            return n;
+        }
 
         // Область базы стороны (где своя зона застройки или площадка у стен) с запасом по краям;
         // в ней — непроходимые клетки: стены, вода, деревья и камни, здания

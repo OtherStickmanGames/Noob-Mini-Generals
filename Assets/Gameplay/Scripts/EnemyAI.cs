@@ -16,6 +16,8 @@ namespace Generals
         [Range(0.2f, 5f)] public float thinkInterval = 1f;
         [Tooltip("Сколько секунд после появления строителей ИИ ничего не делает — фора игроку")]
         [Range(0f, 120f)] public float startDelay = 15f;
+        [Tooltip("Первые столько секунд после форы — без волн атаки, только стройка и найм (отладка, автотест)")]
+        [Min(0f)] public float peaceSeconds;
         [Tooltip("Отрядов в первой волне атаки")]
         [Range(1, 10)] public int firstWaveSize = 2;
         [Tooltip("На сколько отрядов каждая следующая волна больше")]
@@ -182,8 +184,19 @@ namespace Generals
 
             var def = StructureCatalog.Get(item.Value);
             if (FindSpot(def, out var min))
+            {
                 match.TryOrderConstruction(me, def, min, out _);
+                noSpotLogged = null;
+            }
+            else if (noSpotLogged != def.type)
+            {
+                // Раз на тип: план стройки встал — причину видно в консоли (и в отчёте автотеста)
+                noSpotLogged = def.type;
+                Debug.Log($"[ИИ] Стороне {me.team} негде поставить «{def.name}» — стройка по списку ждёт");
+            }
         }
+
+        StructureType? noSpotLogged;
 
         // Отряды, вернувшиеся в оборону потрёпанными, пополняются в пункте подкрепления
         void ReinforceSquads(float reserve)
@@ -369,6 +382,8 @@ namespace Generals
 
         void UpdateWaves()
         {
+            if (Time.time - startTime < settings.startDelay + settings.peaceSeconds)
+                return;
             // Волна считается в отрядах, её остаток — в бойцах
             int defendingSquads = 0, attackers = 0;
             foreach (var squad in me.squads)
@@ -393,7 +408,8 @@ namespace Generals
 
             if (!Attacking)
             {
-                if (defendingSquads >= waveSize)
+                // Пока враг внутри стен — не в атаку: отозвали бы на следующем же ходу (волны каждые 2 с)
+                if (defendingSquads >= waveSize && EnemiesInsideWalls() < settings.recallThreshold)
                 {
                     Attacking = true;
                     WaveNumber++;

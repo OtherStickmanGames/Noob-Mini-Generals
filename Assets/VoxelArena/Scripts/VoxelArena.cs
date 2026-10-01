@@ -232,8 +232,12 @@ public class VoxelArena : MonoBehaviour
         Generated?.Invoke();
     }
 
-    /// <summary>Выбивает воксели шаром. Возвращает число выбитых.</summary>
-    public int Explode(Vector3 worldCenter, float worldRadius)
+    /// <summary>
+    /// Выбивает воксели шаром. Возвращает число выбитых. maxDepth — на сколько вокселей ниже исходной
+    /// поверхности столбца можно копать (воронки в бою — на 1: агент перешагивает уступ в один воксель,
+    /// глубже — поле воронок становится непроходимым и отрезает базу)
+    /// </summary>
+    public int Explode(Vector3 worldCenter, float worldRadius, int maxDepth = int.MaxValue)
     {
         float3 center = WorldToVoxel(worldCenter);
         float radius = worldRadius / voxelSize;
@@ -253,6 +257,9 @@ public class VoxelArena : MonoBehaviour
                 {
                     var cell = new float3(x + 0.5f, y + 0.5f, z + 0.5f);
                     if (math.distancesq(cell, center) > radiusSq)
+                        continue;
+
+                    if (maxDepth != int.MaxValue && y < Layout.height[z * dims.x + x] - maxDepth)
                         continue;
 
                     int index = VoxelIndex(x, y, z);

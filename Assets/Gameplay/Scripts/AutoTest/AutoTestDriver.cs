@@ -22,6 +22,8 @@ namespace Generals
         /// <summary>Базового ресурса в секунду каждой стороне сверх обычного — чтобы быстрее дойти до
         /// поздних построек (завод, техника)</summary>
         public float bonusIncome;
+        /// <summary>Первые столько секунд — без волн атаки (стороны строятся; проверить технику)</summary>
+        public float peaceSeconds;
 
         // Застрял: есть путь дальше этого, а за StuckWindow секунд сдвинулся меньше StuckMove метров
         const float StuckWindow = 8f;
@@ -110,6 +112,7 @@ namespace Generals
                 playerAi.Init(match, match.EnemyAiSettings);
                 playerAi.ResetForMatch(match.Player, match.Enemy);
                 playerAi.Begin();
+                match.EnemyAiSettings.peaceSeconds = peaceSeconds;
                 Time.timeScale = timeScale;
                 started = true;
                 startTime = Time.time;
@@ -339,6 +342,14 @@ namespace Generals
                                    $"бойцов {f.units.Count}, нанято {f.unitsHired}, потеряно {f.unitsLost}; " +
                                    $"техники {f.vehicles.Count}, выпущено {f.vehiclesBuilt}, потеряно {f.vehiclesLost}; " +
                                    $"открыто техники: {string.Join(", ", f.knownVehicles)}");
+            foreach (var f in new[] { match.Player, match.Enemy })
+            {
+                var names = new List<string>();
+                foreach (var s in f.structures)
+                    if (s != null)
+                        names.Add(s.IsBuilt ? s.Def.name : s.Def.name + " (строится)");
+                summary.AppendLine($"Постройки стороны {f.team}: {string.Join(", ", names)}");
+            }
             summary.AppendLine($"Ошибок в консоли: {errors}, предупреждений: {warnings}");
             summary.AppendLine($"Проблем: {problems.Count}");
             foreach (var p in problems)

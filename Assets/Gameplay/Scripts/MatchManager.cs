@@ -701,13 +701,17 @@ namespace Generals
         // ---------- Пехота ----------
 
         /// <summary>
-        /// Отряд выходит из казарм со стороны своих ворот, строем. null — выйти негде (NavMesh не готов)
+        /// Отряд выходит из казарм со стороны своих ворот (с той стороны, откуда есть путь к воротам),
+        /// строем. null — выйти негде (NavMesh не готов или казармы со всех сторон зажаты)
         /// </summary>
         public Squad SpawnSquad(Faction faction, Barracks barracks, BarracksBehavior behavior, SquadWeapon weapon)
         {
             var gate = GateOf(faction);
-            var from = barracks != null ? barracks.Structure.ClosestEdgePoint(gate, 1.5f) : gate;
-            return SpawnSquadAt(faction, barracks, behavior, weapon, from);
+            if (barracks == null)
+                return SpawnSquadAt(faction, null, behavior, weapon, gate);
+            if (!navMesh.HasNavMesh || !FindExit(barracks.Structure, gate, gate, Nav.Infantry, 1.5f, out var exit))
+                return null;
+            return SpawnSquadAt(faction, barracks, behavior, weapon, exit);
         }
 
         Squad SpawnSquadAt(Faction faction, Barracks barracks, BarracksBehavior behavior, SquadWeapon weapon, Vector3 point)
@@ -724,7 +728,8 @@ namespace Generals
             {
                 // Бойцы кучкой, каждый — на ближайшую к своему месту точку NavMesh
                 var offset = rotation * new Vector3((i % 3 - 1) * 0.9f, 0f, -(i / 3) * 0.9f);
-                var position = NavMesh.SamplePosition(hit.position + offset, out var spot, 1.5f, Nav.Infantry) ? spot.position : hit.position;
+                // Небольшой радиус — чтобы не попасть через стену здания в соседний карман
+                var position = NavMesh.SamplePosition(hit.position + offset, out var spot, 0.6f, Nav.Infantry) ? spot.position : hit.position;
                 // Спецоружие — у последних SpecialsPerSquad бойцов (задний ряд строя), остальные с винтовками
                 bool special = weapon != SquadWeapon.Rifle && i >= UnitCatalog.SquadSize - WeaponCatalog.SpecialsPerSquad;
 
@@ -752,14 +757,14 @@ namespace Generals
         /// </summary>
         public bool SpawnReinforcement(ReinforcementPoint point, Squad squad, SquadWeapon weapon)
         {
-            var from = point.Structure.ClosestEdgePoint(squad.Center, 1.2f);
-            if (!navMesh.HasNavMesh || !NavMesh.SamplePosition(from, out var hit, 3f, Nav.Infantry))
+            // Со стороны отряда, но только оттуда, где есть путь к воротам (не в карман между зданиями)
+            if (!navMesh.HasNavMesh || !FindExit(point.Structure, squad.Center, GateOf(squad.Faction), Nav.Infantry, 1.2f, out var exit))
                 return false;
 
-            var look = squad.Center - hit.position;
+            var look = squad.Center - exit;
             look.y = 0f;
             var go = new GameObject();
-            go.transform.SetPositionAndRotation(hit.position, look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity);
+            go.transform.SetPositionAndRotation(exit, look.sqrMagnitude > 0.01f ? Quaternion.LookRotation(look) : Quaternion.identity);
             spawned.Add(go);
             var unit = go.AddComponent<InfantryUnit>();
             unit.Init(squad.Faction, squad, arena.Material, weapon);
@@ -812,6 +817,15 @@ namespace Generals
             float lateral = (column == 0 ? 0f : column == 1 ? -1f : 1f) * lateralSpacing;
             post = gate + inward * (6f + row * rowSpacing) + side * lateral;
             facing = Quaternion.LookRotation(-inward);
+
+            // Пост мог попасть на здание или в карман за ним — двигаем к воротам: до первого
+            // препятствия по прямой от прохода ворот, так пост всегда достижим
+            if (NavMesh.SamplePosition(gate + inward * 2.5f, out var from, 3f, Nav.Infantry) &&
+                NavMesh.Raycast(from.position, post, out var blocked, Nav.Infantry))
+            {
+                var back = from.position - blocked.position;
+                post = blocked.position + (back.sqrMagnitude > 1f ? back.normalized * 1f : back);
+            }
         }
 
         // ---------- Техника ----------
@@ -829,7 +843,7 @@ namespace Generals
                 return null;
 
             var gate = GateOf(faction);
-            if (!FindVehicleExit(factory.Structure, gate, out var exit))
+            if (!FindExit(factory.Structure, gate, gate, Nav.Vehicles, 2.5f, out var exit))
             {
                 blocked = true;
                 return null;
@@ -851,28 +865,30 @@ namespace Generals
         readonly List<(float distance, Vector3 point)> exitCandidates = new();
 
         /// <summary>
-        /// Точка выезда машины у завода: вдоль всех сторон на 2.5 м от края, ближайшие к воротам —
-        /// первыми; годится первая на NavMesh техники, от которой есть полный путь к воротам (не
-        /// больше 4 поисков пути: путь к недостижимой точке обходит весь NavMesh)
+        /// Точка выхода юнита из здания: вдоль всех сторон на margin от края, ближайшие к toward —
+        /// первыми; годится первая на NavMesh агента (filter), от которой есть полный путь к воротам.
+        /// Ближайшая точка края без проверки не годится: с той стороны может быть карман между
+        /// зданиями и стеной, и юнит родится в нём. Поиск пути из кармана дешёвый (обходит только
+        /// карман), но всё равно — не больше 6 попыток
         /// </summary>
-        bool FindVehicleExit(Structure factory, Vector3 gate, out Vector3 exit)
+        bool FindExit(Structure structure, Vector3 toward, Vector3 gate, NavMeshQueryFilter filter, float margin, out Vector3 exit)
         {
             exit = default;
-            if (!NavMesh.SamplePosition(gate, out var gateHit, 4f, Nav.Vehicles))
+            if (!NavMesh.SamplePosition(gate, out var gateHit, 4f, filter))
                 return false;
 
             exitCandidates.Clear();
-            var center = factory.transform.position;
-            var half = factory.HalfExtents + new Vector2(2.5f, 2.5f);
-            for (float x = -half.x; x <= half.x + 0.01f; x += 1.5f)
+            var center = structure.transform.position;
+            var half = structure.HalfExtents + new Vector2(margin, margin);
+            for (float x = -half.x; x <= half.x + 0.01f; x += 1f)
             {
-                exitCandidates.Add(((center + new Vector3(x, 0f, half.y) - gate).sqrMagnitude, center + new Vector3(x, 0f, half.y)));
-                exitCandidates.Add(((center + new Vector3(x, 0f, -half.y) - gate).sqrMagnitude, center + new Vector3(x, 0f, -half.y)));
+                AddExitCandidate(center + new Vector3(x, 0f, half.y), toward);
+                AddExitCandidate(center + new Vector3(x, 0f, -half.y), toward);
             }
-            for (float z = -half.y; z <= half.y + 0.01f; z += 1.5f)
+            for (float z = -half.y + 1f; z <= half.y - 0.99f; z += 1f)
             {
-                exitCandidates.Add(((center + new Vector3(half.x, 0f, z) - gate).sqrMagnitude, center + new Vector3(half.x, 0f, z)));
-                exitCandidates.Add(((center + new Vector3(-half.x, 0f, z) - gate).sqrMagnitude, center + new Vector3(-half.x, 0f, z)));
+                AddExitCandidate(center + new Vector3(half.x, 0f, z), toward);
+                AddExitCandidate(center + new Vector3(-half.x, 0f, z), toward);
             }
             exitCandidates.Sort((a, b) => a.distance.CompareTo(b.distance));
 
@@ -880,19 +896,22 @@ namespace Generals
             int attempts = 0;
             foreach (var (_, point) in exitCandidates)
             {
-                if (!NavMesh.SamplePosition(point, out var hit, 1.2f, Nav.Vehicles))
+                if (!NavMesh.SamplePosition(point, out var hit, 0.8f, filter))
                     continue;
-                if (NavMesh.CalculatePath(hit.position, gateHit.position, Nav.Vehicles, exitPath) &&
+                if (NavMesh.CalculatePath(hit.position, gateHit.position, filter, exitPath) &&
                     exitPath.status == NavMeshPathStatus.PathComplete)
                 {
                     exit = hit.position;
                     return true;
                 }
-                if (++attempts >= 4)
+                if (++attempts >= 6)
                     break;
             }
             return false;
         }
+
+        void AddExitCandidate(Vector3 point, Vector3 toward) =>
+            exitCandidates.Add(((point - toward).sqrMagnitude, point));
 
         /// <summary>
         /// Пост машины в обороне: перед своими воротами снаружи, двумя колоннами по бокам от прохода
