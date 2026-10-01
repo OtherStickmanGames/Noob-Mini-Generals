@@ -617,6 +617,8 @@ namespace Generals
             if (site.UnreachableReported)
                 return;
             site.UnreachableReported = true;
+            Debug.Log($"[Стройка] Строителям стороны {site.Faction.team} не пройти к «{site.Def.name}» " +
+                      $"в {site.transform.position} — повтор через {UnreachableSiteRetry} с");
             SiteUnreachable?.Invoke(site);
         }
 

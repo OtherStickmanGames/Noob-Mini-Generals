@@ -17,10 +17,16 @@ namespace Generals
         const float CandidateSpacing = 1f;
         const float CornerInset = 0.2f;
         const float SampleRadius = 0.4f;
-        const int MaxPathFailures = 3;
+        // По одной неудаче на сторону здания
+        const int MaxPathFailures = 4;
+        // Агент встаёт у точки с такой погрешностью: точка работы выбирается с запасом на неё,
+        // а стоящий у своей точки строитель работает, даже если до здания чуть дальше WorkDistance
+        const float ArriveTolerance = 0.4f;
 
         NavMeshPath path;
-        readonly List<(float distance, Vector3 position)> candidates = new();
+        Vector3? workPoint;
+        readonly List<(float distance, Vector3 position)>[] sideCandidates =
+            { new(), new(), new(), new() };
 
         public Faction Faction { get; private set; }
         public Structure Target { get; private set; }
@@ -79,7 +85,7 @@ namespace Generals
                 return;
             }
 
-            if (Target.DistanceTo(transform.position) <= WorkDistance)
+            if (Target.DistanceTo(transform.position) <= WorkDistance || AtWorkPoint())
             {
                 agent.isStopped = true;
                 var look = Target.transform.position - transform.position;
@@ -108,6 +114,7 @@ namespace Generals
             if (FindWorkPoint(Target, out var point))
             {
                 Target.UnreachableReported = false;
+                workPoint = point;
                 agent.isStopped = false;
                 agent.SetDestination(point);
                 return;
@@ -121,17 +128,20 @@ namespace Generals
 
         /// <summary>
         /// Точки вдоль всех четырёх сторон здания на расстоянии работы (на NavMesh у земли, не на
-        /// стене); по порядку от ближайшей по прямой — первая, до которой есть полный путь.
-        /// Ближайшая точка края без проверки пути не годится: с той стороны может быть узкий проход
-        /// до соседнего здания, а ближайший кусок NavMesh — на верху стены. Поиск пути к недостижимой
-        /// точке обходит весь NavMesh, поэтому после нескольких неудач сдаёмся.
+        /// стене). Проверяются по кругу сторон — ближайшая точка каждой стороны, потом следующие, —
+        /// первая, до которой есть путь, и есть точка работы. Ближайшая точка края без проверки пути
+        /// не годится: с той стороны может быть узкий проход до соседнего здания или стены (карман
+        /// NavMesh). Поиск пути к недостижимой точке обходит весь NavMesh, поэтому неудач — не больше
+        /// MaxPathFailures; по кругу сторон карман с одной стороны не съедает их все. Неполный путь
+        /// годится, если кончается у самой стройки.
         /// </summary>
         bool FindWorkPoint(Structure site, out Vector3 point)
         {
             var match = MatchManager.Instance;
             var center = site.transform.position;
             var half = site.HalfExtents;
-            candidates.Clear();
+            for (int side = 0; side < 4; side++)
+                sideCandidates[side].Clear();
 
             for (int side = 0; side < 4; side++)
             {
@@ -148,27 +158,63 @@ namespace Generals
                         : center + new Vector3(sign * (half.x + EdgeMargin), 0f, t);
 
                     if (!NavMesh.SamplePosition(OnGround(candidate), out var hit, SampleRadius, NavMesh.AllAreas) ||
-                        site.DistanceTo(hit.position) > WorkDistance || match.IsOnWall(hit.position))
+                        site.DistanceTo(hit.position) > WorkDistance - ArriveTolerance || match.IsOnWall(hit.position))
                         continue;
-                    candidates.Add(((hit.position - transform.position).sqrMagnitude, hit.position));
+                    sideCandidates[side].Add(((hit.position - transform.position).sqrMagnitude, hit.position));
                 }
+                sideCandidates[side].Sort((a, b) => a.distance.CompareTo(b.distance));
             }
-            candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
 
             int failures = 0;
-            foreach (var (_, position) in candidates)
+            for (int index = 0; failures < MaxPathFailures; index++)
             {
-                if (NavMesh.CalculatePath(transform.position, position, NavMesh.AllAreas, path) &&
-                    path.status == NavMeshPathStatus.PathComplete)
+                bool any = false;
+                for (int side = 0; side < 4 && failures < MaxPathFailures; side++)
                 {
-                    point = position;
-                    return true;
+                    var list = sideCandidates[side];
+                    if (index >= list.Count)
+                        continue;
+                    any = true;
+
+                    var position = list[index].position;
+                    if (!NavMesh.CalculatePath(transform.position, position, NavMesh.AllAreas, path))
+                    {
+                        failures++;
+                        continue;
+                    }
+                    if (path.status == NavMeshPathStatus.PathComplete)
+                    {
+                        point = position;
+                        return true;
+                    }
+
+                    // Неполный путь кончается в ближайшей достижимой точке — вдруг она у самой стройки
+                    var corners = path.corners;
+                    if (corners.Length > 0)
+                    {
+                        var end = corners[^1];
+                        if (site.DistanceTo(end) <= WorkDistance - ArriveTolerance && !match.IsOnWall(end))
+                        {
+                            point = end;
+                            return true;
+                        }
+                    }
+                    failures++;
                 }
-                if (++failures >= MaxPathFailures)
+                if (!any)
                     break;
             }
             point = default;
             return false;
+        }
+
+        bool AtWorkPoint()
+        {
+            if (!workPoint.HasValue)
+                return false;
+            var d = workPoint.Value - transform.position;
+            d.y = 0f;
+            return d.sqrMagnitude <= ArriveTolerance * ArriveTolerance;
         }
 
         // Точка на поверхности столбца арены: у турели на стене строитель работает снизу, у подножия
@@ -195,6 +241,7 @@ namespace Generals
             if (Target != null && Target.AssignedBuilder == this)
                 Target.AssignedBuilder = null;
             Target = null;
+            workPoint = null;
             retargetTimer = 0f;
         }
 
