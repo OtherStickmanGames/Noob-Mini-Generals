@@ -163,6 +163,14 @@ namespace Generals
                 return;
             }
 
+            // Турель бьёт по отряду и достаёт до неё — стреляем сразу, не идя на позицию
+            var turret = TurretInRange();
+            if (turret != null)
+            {
+                StandAndFire(turret);
+                return;
+            }
+
             switch (Squad.Order)
             {
                 case SquadOrder.AttackArea when Combat.IsAlive(Squad.AreaTarget):
@@ -212,6 +220,17 @@ namespace Generals
                 if (Combat.HasLineOfFire(Muzzle, nearby[i].unit, Faction))
                     return nearby[i].unit;
             return null;
+        }
+
+        // Турель, которая стреляет по нашему отряду, в дальности и на линии огня
+        Structure TurretInRange()
+        {
+            var enemy = MatchManager.Instance.GetFaction(1 - Faction.team);
+            var turret = Squad.TurretFiringAt(enemy, transform.position);
+            if (turret == null || turret.DistanceTo(transform.position) > weapon.Def.range * 0.9f ||
+                !Combat.HasLineOfFire(Muzzle, turret, Faction))
+                return null;
+            return turret;
         }
 
         void StandAndFire(IDamageable target)

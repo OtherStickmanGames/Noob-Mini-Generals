@@ -203,7 +203,7 @@ namespace Generals
 
         /// <summary>
         /// Цель атакующего бойца: случайная из ближайших построек врага — зданий и участков стены.
-        /// Ближе — вероятнее, здание вдвое вероятнее участка стены, цель, которую уже бьют многие,
+        /// Ближе — вероятнее, здание вдвое вероятнее участка стены, турель вдвое вероятнее здания, цель, которую уже бьют многие,
         /// менее вероятна. Так отряд расходится по целям, а в пролом видят казармы.
         /// </summary>
         public IAreaTarget ChooseAttackTarget(InfantryUnit unit, IAreaTarget exclude)
@@ -231,7 +231,7 @@ namespace Generals
             float total = 0f;
             foreach (var s in enemy.structures)
                 if (Combat.IsAlive(s) && (IAreaTarget)s != exclude)
-                    total += AddCandidate(s, s.DistanceTo(position) - nearest, 2f);
+                    total += AddCandidate(s, s.DistanceTo(position) - nearest, s.Turret != null ? 4f : 2f);
             foreach (var w in enemy.walls)
                 if (Combat.IsAlive(w) && (IAreaTarget)w != exclude)
                     total += AddCandidate(w, w.DistanceTo(position) - nearest, 1f);
@@ -277,7 +277,7 @@ namespace Generals
             float total = 0f;
             foreach (var s in enemy.structures)
                 if (Combat.IsAlive(s) && (IAreaTarget)s != exclude)
-                    total += AddCandidate(s, Mathf.Min(s.DistanceTo(position) - nearest, UnitCatalog.AttackTargetWindow), 1f);
+                    total += AddCandidate(s, Mathf.Min(s.DistanceTo(position) - nearest, UnitCatalog.AttackTargetWindow), s.Turret != null ? 2f : 1f);
 
             float roll = Random.value * total;
             foreach (var (target, weight) in candidateTargets)

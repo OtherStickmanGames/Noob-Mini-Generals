@@ -167,6 +167,16 @@ namespace Generals
                 return;
             }
 
+            // По отряду бьёт турель — отвечаем ей, что бы ни били до этого
+            var turret = TurretFiringAt(enemy, center);
+            if (turret != null)
+            {
+                SetAreaTarget(turret);
+                Order = SquadOrder.AttackArea;
+                Threat = null;
+                return;
+            }
+
             // Постройка — случайная из ближайших, бьём до разрушения. Шли на участок стены, но уже
             // прошли внутрь (в пролом или ворота) — теперь здания
             var leader = Members[0];
@@ -183,6 +193,25 @@ namespace Generals
             {
                 Hold(center, facing);
             }
+        }
+
+        /// <summary>Ближайшая вражеская турель, которая сейчас стреляет по бойцу этого отряда</summary>
+        public Structure TurretFiringAt(Faction enemy, Vector3 around)
+        {
+            Structure best = null;
+            float bestDistance = float.MaxValue;
+            foreach (var s in enemy.structures)
+            {
+                if (s.Turret == null || !Combat.IsAlive(s) || !(s.Turret.Target is InfantryUnit u) || u.Squad != this)
+                    continue;
+                float d = s.DistanceTo(around);
+                if (d < bestDistance)
+                {
+                    best = s;
+                    bestDistance = d;
+                }
+            }
+            return best;
         }
 
         /// <summary>Вокруг цели не нашлось места — отряд берёт другую</summary>
