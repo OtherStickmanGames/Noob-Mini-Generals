@@ -824,7 +824,7 @@ namespace Generals
         public VehicleUnit SpawnVehicle(Faction faction, Factory factory, BarracksBehavior behavior, VehicleType type, out bool blocked)
         {
             blocked = false;
-            if (!navMesh.HasNavMesh || navMesh.VehicleAgentTypeID < 0)
+            if (!navMesh.HasNavMesh)
                 return null;
 
             var gate = GateOf(faction);

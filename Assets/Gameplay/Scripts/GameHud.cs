@@ -1427,12 +1427,14 @@ namespace Generals
                 return;
             }
 
-            armouryHeader.text = $"Машинный завод · техники {factory.Vehicles.Count}";
+            // Как включить постоянное производство — один раз в заголовке, а не мелко на каждой кнопке
+            armouryHeader.text = layout == HudLayout.Mobile
+                ? "Техника   <size=70%><color=#B8C0CC>удерживайте машину — постоянно</color></size>"
+                : "Техника   <size=70%><color=#B8C0CC>ПКМ по машине — постоянно</color></size>";
             var types = VehicleCatalog.All;
             while (factoryRows.Count < types.Count)
                 factoryRows.Add(CreateFactoryRow());
 
-            string how = layout == HudLayout.Mobile ? "долгое нажатие" : "ПКМ";
             bool built = factory.Structure.IsBuilt;
             bool researchBusy = Player.vehicleResearching.HasValue;
             for (int i = 0; i < factoryRows.Count; i++)
@@ -1446,20 +1448,18 @@ namespace Generals
                 bool repeat = factory.RepeatType == def.type;
                 int queued = factory.QueuedOf(def.type);
 
-                string details = def.role;
-                if (queued > 0)
-                    details += $" · в очереди {queued}";
-                if (repeat)
-                    details += " · постоянно";
-                row.label.text = $"{def.name}\n<size=70%>{details}</size>";
+                row.label.text = $"{def.name}\n<size=70%>{def.role}</size>";
                 row.background.color = repeat ? new Color(repeatHireColor.r, repeatHireColor.g, repeatHireColor.b, 0.35f)
                                      : known ? knownWeaponRowColor : armouryRowColor;
 
                 if (known)
                 {
-                    row.buttonText.text = repeat
-                        ? $"Постоянно · {def.cost}\n<size=58%>{how} — выключить</size>"
-                        : $"Нанять · {def.cost}\n<size=58%>{how} — постоянно</size>";
+                    // Вторая строка — состояние: сколько в очереди, постоянное производство
+                    string state = repeat ? (queued > 0 ? $"постоянно · в очереди {queued}" : "постоянно")
+                                 : queued > 0 ? $"в очереди {queued}" : "";
+                    row.buttonText.text = state.Length > 0
+                        ? $"Нанять · {def.cost}\n<size=70%>{state}</size>"
+                        : $"Нанять · {def.cost}";
                     row.button.interactable = built && factory.Queued < VehicleCatalog.FactoryQueueLimit &&
                                               Player.CanAfford(def.cost, 0);
                 }
@@ -1532,20 +1532,19 @@ namespace Generals
                 : "Постоянное производство выключено");
         }
 
+        // Две короткие строки, как у казарм: производство (или «выезд перекрыт») и поведение.
+        // Очередь и исследование видны в строках техники над панелью
         string FactoryInfo(Factory factory)
         {
             string production;
             if (factory.ExitBlocked)
-                production = $"<color=#{ColorUtility.ToHtmlStringRGB(warningColor)}>Выезд перекрыт — освободите проезд к воротам</color>";
+                production = $"<color=#{ColorUtility.ToHtmlStringRGB(warningColor)}>Выезд к воротам перекрыт</color>";
             else if (factory.Queued > 0)
-                production = $"Производится: {VehicleCatalog.Get(factory.Queue[0]).name} {factory.Progress:P0}   " +
-                             $"В очереди: {factory.Queued}/{VehicleCatalog.FactoryQueueLimit}";
+                production = $"Производится: {VehicleCatalog.Get(factory.Queue[0]).name} {factory.Progress:P0}";
             else
                 production = $"Техники: {factory.Vehicles.Count}";
-            if (factory.Researching.HasValue)
-                production += $"\nИзучается: {VehicleCatalog.Get(factory.Researching.Value).name} {factory.ResearchProgress:P0}";
             string behavior = factory.Behavior == BarracksBehavior.Defend
-                ? "Оборона: стоят перед воротами"
+                ? "Оборона: перед воротами"
                 : "Атака: идут на врага";
             return $"{production}\n{behavior}";
         }

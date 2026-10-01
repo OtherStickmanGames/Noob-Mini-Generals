@@ -49,7 +49,7 @@ public class ArenaNavMesh : MonoBehaviour
 
     // [0] — пехота, [1] — техника
     Layer[] layers;
-    int vehicleAgentTypeID = -1;
+    int vehicleAgentTypeID;
 
     const int NotWalkableArea = 1;
 
@@ -81,7 +81,8 @@ public class ArenaNavMesh : MonoBehaviour
     public int LastBuildFrames { get; private set; }
     public int TileSize => layers != null ? layers[0].settings.tileSize : 0;
     public int AgentTypeID => agentTypeID;
-    /// <summary>Тип агента техники (создаётся при первой сборке; до неё — -1)</summary>
+    /// <summary>Тип агента техники (создаётся при первой сборке; HasNavMesh — собран и его NavMesh). Идентификаторы
+    /// типов агентов в Unity бывают и отрицательными, «нет типа» по знаку не определить</summary>
     public int VehicleAgentTypeID => vehicleAgentTypeID;
 
     void Awake()
