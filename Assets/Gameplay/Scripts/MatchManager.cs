@@ -24,6 +24,7 @@ namespace Generals
         public EnemyAI EnemyAI { get; private set; }
 
         public VoxelArena Arena => arena;
+        public ArenaNavMesh ArenaNav => navMesh;
         public Faction Player { get; private set; }
         public Faction Enemy { get; private set; }
         public BuildGrid Grid { get; private set; }
@@ -347,7 +348,7 @@ namespace Generals
                 float s = Mathf.Repeat(start + n * perimeter / steps, perimeter);
                 var p = PerimeterPoint(target.transform.position, half, s);
 
-                if (!NavMesh.SamplePosition(p, out var hit, 1.2f, NavMesh.AllAreas))
+                if (!NavMesh.SamplePosition(p, out var hit, 1.2f, Nav.Infantry))
                     continue;
                 var point = hit.position;
                 if (avoid.HasValue && (point - avoid.Value).sqrMagnitude < 2.25f)
@@ -373,7 +374,7 @@ namespace Generals
                 if (!Combat.HasLineOfFire(point + Vector3.up * InfantryUnit.ChestHeight, target, unit.Faction))
                     continue;
                 // Дойти можно (не верх стены и не отрезанный кусок NavMesh)
-                if (!NavMesh.CalculatePath(unit.transform.position, point, NavMesh.AllAreas, slotPath) ||
+                if (!NavMesh.CalculatePath(unit.transform.position, point, Nav.Infantry, slotPath) ||
                     slotPath.status != NavMeshPathStatus.PathComplete)
                 {
                     // Поиск пути к недостижимой точке обходит весь NavMesh — после нескольких таких
@@ -676,7 +677,7 @@ namespace Generals
             var forward = Quaternion.Euler(0f, GateRotation(faction.team), 0f) * Vector3.forward;
             var point = hq.transform.position + forward * (hq.HalfExtents.y + 1.5f);
 
-            if (!NavMesh.SamplePosition(point, out var hit, 4f, NavMesh.AllAreas))
+            if (!NavMesh.SamplePosition(point, out var hit, 4f, Nav.Infantry))
                 return;
 
             var go = new GameObject();
@@ -701,7 +702,7 @@ namespace Generals
 
         Squad SpawnSquadAt(Faction faction, Barracks barracks, BarracksBehavior behavior, SquadWeapon weapon, Vector3 point)
         {
-            if (!navMesh.HasNavMesh || !NavMesh.SamplePosition(point, out var hit, 4f, NavMesh.AllAreas))
+            if (!navMesh.HasNavMesh || !NavMesh.SamplePosition(point, out var hit, 4f, Nav.Infantry))
                 return null;
 
             var look = GateOf(faction) - hit.position;
@@ -713,7 +714,7 @@ namespace Generals
             {
                 // Бойцы кучкой, каждый — на ближайшую к своему месту точку NavMesh
                 var offset = rotation * new Vector3((i % 3 - 1) * 0.9f, 0f, -(i / 3) * 0.9f);
-                var position = NavMesh.SamplePosition(hit.position + offset, out var spot, 1.5f, NavMesh.AllAreas) ? spot.position : hit.position;
+                var position = NavMesh.SamplePosition(hit.position + offset, out var spot, 1.5f, Nav.Infantry) ? spot.position : hit.position;
                 // Спецоружие — у последних SpecialsPerSquad бойцов (задний ряд строя), остальные с винтовками
                 bool special = weapon != SquadWeapon.Rifle && i >= UnitCatalog.SquadSize - WeaponCatalog.SpecialsPerSquad;
 
@@ -742,7 +743,7 @@ namespace Generals
         public bool SpawnReinforcement(ReinforcementPoint point, Squad squad, SquadWeapon weapon)
         {
             var from = point.Structure.ClosestEdgePoint(squad.Center, 1.2f);
-            if (!navMesh.HasNavMesh || !NavMesh.SamplePosition(from, out var hit, 3f, NavMesh.AllAreas))
+            if (!navMesh.HasNavMesh || !NavMesh.SamplePosition(from, out var hit, 3f, Nav.Infantry))
                 return false;
 
             var look = squad.Center - hit.position;

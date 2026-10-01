@@ -157,7 +157,7 @@ namespace Generals
                         ? center + new Vector3(t, 0f, sign * (half.y + EdgeMargin))
                         : center + new Vector3(sign * (half.x + EdgeMargin), 0f, t);
 
-                    if (!NavMesh.SamplePosition(OnGround(candidate), out var hit, SampleRadius, NavMesh.AllAreas) ||
+                    if (!NavMesh.SamplePosition(OnGround(candidate), out var hit, SampleRadius, Nav.Infantry) ||
                         site.DistanceTo(hit.position) > WorkDistance - ArriveTolerance || match.IsOnWall(hit.position))
                         continue;
                     sideCandidates[side].Add(((hit.position - transform.position).sqrMagnitude, hit.position));
@@ -177,7 +177,7 @@ namespace Generals
                     any = true;
 
                     var position = list[index].position;
-                    if (!NavMesh.CalculatePath(transform.position, position, NavMesh.AllAreas, path))
+                    if (!NavMesh.CalculatePath(transform.position, position, Nav.Infantry, path))
                     {
                         failures++;
                         continue;
@@ -230,7 +230,7 @@ namespace Generals
 
         void MoveTo(Vector3 point)
         {
-            if (!NavMesh.SamplePosition(point, out var hit, 3f, NavMesh.AllAreas))
+            if (!NavMesh.SamplePosition(point, out var hit, 3f, Nav.Infantry))
                 return;
             agent.isStopped = false;
             agent.SetDestination(hit.position);

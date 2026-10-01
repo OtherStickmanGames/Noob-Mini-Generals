@@ -9,7 +9,7 @@ public struct ArenaGenSettings
 {
     // Меняется, когда в настройках появляются новые поля:
     // сцена со старой версией получает значения по умолчанию
-    public const int CurrentVersion = 8;
+    public const int CurrentVersion = 9;
 
     [HideInInspector] public int version;
     public int seed;
@@ -85,10 +85,11 @@ public struct ArenaGenSettings
         wallLevel3Size = 56,
         wallThickness = 2,
         wallHeight = 4,
-        gateWidth = 4,
+        // Ворота и рампы — под технику (танк ~2 м, решение автора 01.10.2026)
+        gateWidth = 10,
         basePadding = 4,
         baseBackSpace = 50,
-        rampWidth = 5,
+        rampWidth = 10,
         extraRampChance = 0.35f,
         waterNoiseScale = 0.03f,
         waterThreshold = 0.12f,

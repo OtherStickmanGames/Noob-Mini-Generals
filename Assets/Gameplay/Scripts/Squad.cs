@@ -287,7 +287,7 @@ namespace Generals
             path ??= new NavMeshPath();
             using (CanFightPathMarker.Auto())
             {
-                if (!NavMesh.CalculatePath(from, to, NavMesh.AllAreas, path) || path.status != NavMeshPathStatus.PathComplete)
+                if (!NavMesh.CalculatePath(from, to, Nav.Infantry, path) || path.status != NavMeshPathStatus.PathComplete)
                     return false;
             }
 

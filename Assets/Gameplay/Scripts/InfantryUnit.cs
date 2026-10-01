@@ -330,7 +330,7 @@ namespace Generals
             agent.isStopped = false;
             if ((point - destination).sqrMagnitude < RepathDistance * RepathDistance)
                 return;
-            if (!NavMesh.SamplePosition(point, out var hit, 3f, NavMesh.AllAreas))
+            if (!NavMesh.SamplePosition(point, out var hit, 3f, Nav.Infantry))
                 return;
             destination = point;
             agent.SetDestination(hit.position);
@@ -345,7 +345,7 @@ namespace Generals
             if (navCheckTimer > 0f)
                 return;
             navCheckTimer = 0.5f;
-            if (NavMesh.SamplePosition(transform.position, out var hit, 3f, NavMesh.AllAreas))
+            if (NavMesh.SamplePosition(transform.position, out var hit, 3f, Nav.Infantry))
             {
                 agent.Warp(hit.position);
                 destination = new Vector3(float.MaxValue, 0f, 0f);

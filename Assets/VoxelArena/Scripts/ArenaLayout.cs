@@ -890,10 +890,19 @@ public static class ArenaLayoutGenerator
         // ---------- Проходимость по сетке ----------
 
         /// <summary>
-        /// Обход от старта: шаг по высоте не больше блока. Клетка проходима, если на ней
-        /// и у всех 8 соседей нет препятствий и обрывов: проход должен быть шириной
-        /// минимум 3 клетки (1.5 м). Навмеш сужает проходы на радиус агента с каждой стороны,
-        /// и более узкие места в нём закрываются.
+        /// Полуширина прохода в клетках: проход должен быть шириной минимум 2·r+1 клеток. Считается
+        /// по самому широкому агенту — технике (танк ~2 м): навмеш сужает проходы на радиус агента
+        /// с каждой стороны, и более узкие места для неё закрываются.
+        /// </summary>
+        const int ClearanceRadius = 2;
+        // Коридор без деревьев: проход техники плюс полуразмер дерева (дерево — препятствие 5×5)
+        const int CorridorRadius = ClearanceRadius + 2;
+        // Центр точки захвата занят рудным бугром: обход доходит до клетки не дальше этого
+        const int CaptureReachRadius = 6;
+
+        /// <summary>
+        /// Обход от старта: шаг по высоте не больше блока. Клетка проходима, если в квадрате
+        /// ClearanceRadius вокруг неё нет препятствий и обрывов (перепад больше блока между соседями).
         /// </summary>
         bool[] Walk(int2 start, bool[] obstacles, int[] previous)
         {
@@ -901,6 +910,7 @@ public static class ArenaLayoutGenerator
             if (previous != null)
                 for (int i = 0; i < n; i++)
                     previous[i] = -1;
+            MarkCliffs();
 
             var queue = new int[n];
             int head = 0, tail = 0;
@@ -929,22 +939,40 @@ public static class ArenaLayoutGenerator
             return seen;
         }
 
+        bool[] cliff;
+
+        // Обрыв: у клетки есть сосед выше или ниже больше чем на блок (рампа — ступени по блоку)
+        void MarkCliffs()
+        {
+            cliff ??= new bool[n];
+            for (int z = 0; z < sz; z++)
+            {
+                for (int x = 0; x < sx; x++)
+                {
+                    int i = Idx(x, z);
+                    bool c = false;
+                    if (x > 0) c |= math.abs(height[i] - height[i - 1]) > 1;
+                    if (x < sx - 1) c |= math.abs(height[i] - height[i + 1]) > 1;
+                    if (z > 0) c |= math.abs(height[i] - height[i - sx]) > 1;
+                    if (z < sz - 1) c |= math.abs(height[i] - height[i + sx]) > 1;
+                    cliff[i] = c;
+                }
+            }
+        }
+
         bool Blocked(int i, bool[] obstacles) => water[i] || border[i] || obstacles[i];
 
         bool Walkable(int x, int z, bool[] obstacles)
         {
-            int i = Idx(x, z);
-            if (Blocked(i, obstacles))
-                return false;
-            for (int dz = -1; dz <= 1; dz++)
+            for (int dz = -ClearanceRadius; dz <= ClearanceRadius; dz++)
             {
-                for (int dx = -1; dx <= 1; dx++)
+                for (int dx = -ClearanceRadius; dx <= ClearanceRadius; dx++)
                 {
                     int xx = x + dx, zz = z + dz;
                     if (!Inside(xx, zz))
                         return false;
                     int j = Idx(xx, zz);
-                    if (Blocked(j, obstacles) || math.abs(height[j] - height[i]) > 1)
+                    if (Blocked(j, obstacles) || cliff[j])
                         return false;
                 }
             }
@@ -1039,7 +1067,7 @@ public static class ArenaLayoutGenerator
 
             foreach (var goal in goals)
             {
-                int cur = NearestSeen(goal, seen, 4);
+                int cur = NearestSeen(goal, seen, CaptureReachRadius);
                 while (cur >= 0)
                 {
                     MarkCorridor(cur);
@@ -1052,8 +1080,8 @@ public static class ArenaLayoutGenerator
         void MarkCorridor(int i)
         {
             int x = i % sx, z = i / sx;
-            for (int dz = -2; dz <= 2; dz++)
-                for (int dx = -2; dx <= 2; dx++)
+            for (int dz = -CorridorRadius; dz <= CorridorRadius; dz++)
+                for (int dx = -CorridorRadius; dx <= CorridorRadius; dx++)
                     if (Inside(x + dx, z + dz))
                         corridor[Idx(x + dx, z + dz)] = true;
         }
@@ -1268,7 +1296,7 @@ public static class ArenaLayoutGenerator
             layout.basesConnected = NearestSeen(gateOutB, seen, 1) >= 0;
             layout.capturePointsReachable = true;
             foreach (var c in captures)
-                if (NearestSeen(c, seen, 4) < 0)
+                if (NearestSeen(c, seen, CaptureReachRadius) < 0)
                     layout.capturePointsReachable = false;
         }
 
