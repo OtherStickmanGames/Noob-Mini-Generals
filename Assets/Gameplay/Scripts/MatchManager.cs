@@ -63,6 +63,9 @@ namespace Generals
         void Awake()
         {
             Instance = this;
+            // Бюджет поиска путей агентов за кадр (по умолчанию 100): сетка мелкая, длинные маршруты
+            // съедали его целиком, и запрос строителя висел в очереди минутами (автотест: pathPending)
+            NavMesh.pathfindingIterationsPerFrame = 1500;
             gameObject.AddComponent<PhysicsQueries>();
             Effects = gameObject.AddComponent<Effects>();
             Projectiles = gameObject.AddComponent<Projectiles>();
@@ -531,7 +534,40 @@ namespace Generals
             Grid.SetOccupied(min, def.footprint, true);
             if (capturePoint != null)
                 capturePoint.Mine = structure;
+            ClearFootprint(structure);
             return structure;
+        }
+
+        // Юниты на месте новой постройки отходят к её краю: здание вырезает себя из NavMesh, и стоявшие
+        // на его месте оказывались на отрезанном островке (автотест: отряд заперт внутри добытчика)
+        void ClearFootprint(Structure structure)
+        {
+            foreach (var f in new[] { Player, Enemy })
+            {
+                foreach (var u in f.units)
+                    MoveOutOf(structure, u, Nav.Infantry);
+                foreach (var b in f.builders)
+                    MoveOutOf(structure, b, Nav.Infantry);
+                foreach (var v in f.vehicles)
+                    MoveOutOf(structure, v, Nav.Vehicles);
+            }
+        }
+
+        static void MoveOutOf(Structure structure, Component unit, NavMeshQueryFilter filter)
+        {
+            if (unit == null)
+                return;
+            const float margin = 0.6f;
+            var position = unit.transform.position;
+            if (structure.DistanceTo(position) > margin)
+                return;
+            var outside = structure.ClosestEdgePoint(position, 1.2f);
+            if (NavMesh.SamplePosition(outside, out var hit, 1.5f, filter))
+            {
+                unit.GetComponent<NavMeshAgent>().Warp(hit.position);
+                // У строителя объект двигает он сам, а не агент
+                unit.transform.position = hit.position;
+            }
         }
 
         /// <summary>

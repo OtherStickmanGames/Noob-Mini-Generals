@@ -47,13 +47,14 @@ namespace Generals
         {
             StructureType.Extractor,
             StructureType.Barracks,
+            // Завод — рано, пока база пустая: ангару 8×10 нужен проезд к воротам шириной в машину, в
+            // застроенной базе его уже нет (автотест: после вторых казарм — ни одного места)
+            StructureType.Factory,
             StructureType.Extractor,
             null,
             StructureType.Turret,
             StructureType.Extractor,
             StructureType.Barracks,
-            // Завод — пока на базе есть место под ангар 8×10 (автотест: после оружейной места не было)
-            StructureType.Factory,
             StructureType.Turret,
             StructureType.ReinforcementPoint,
             StructureType.Armoury,
@@ -97,6 +98,8 @@ namespace Generals
             startTime = -1f;
             timer = 0f;
             turretSide = 0;
+            noSpotUntil.Clear();
+            noSpotLogged = null;
         }
 
         /// <summary>Строители появились (готов NavMesh) — пошёл отсчёт форы</summary>
@@ -155,6 +158,10 @@ namespace Generals
                 int key = item.HasValue ? (int)item.Value : -1;
                 required.TryGetValue(key, out int n);
                 required[key] = ++n;
+                // Для этого здания недавно не нашлось места — пока пропустить, строить следующее по списку
+                // (автотест: стройка вставала целиком на «негде поставить завод»)
+                if (item.HasValue && noSpotUntil.TryGetValue(item.Value, out float until) && Time.time < until)
+                    continue;
                 if (Count(item) < n)
                 {
                     hasNext = true;
@@ -184,21 +191,29 @@ namespace Generals
             }
 
             var def = StructureCatalog.Get(item.Value);
-            if (FindSpot(def, out var min))
+            bool spotFound = FindSpot(def, out var min);
+            if (spotFound)
             {
                 match.TryOrderConstruction(me, def, min, out _);
                 noSpotLogged = null;
             }
-            else if (noSpotLogged != def.type)
+            else
             {
-                // Раз на тип: план стройки встал — причину видно в консоли (и в отчёте автотеста)
+                noSpotUntil[def.type] = Time.time + NoSpotRetry;
+            }
+            if (!spotFound && noSpotLogged != def.type)
+            {
+                // Раз на тип: причину видно в консоли (и в отчёте автотеста)
                 noSpotLogged = def.type;
-                Debug.Log($"[ИИ] Стороне {me.team} негде поставить «{def.name}» — стройка по списку ждёт " +
+                Debug.Log($"[ИИ] Стороне {me.team} негде поставить «{def.name}» — пропускаю на {NoSpotRetry:0} с, строю следующее " +
                           $"(мест по правилам и зазору: {spotsByRules}, проходы: {lastPassageReason ?? "—"})");
             }
         }
 
         StructureType? noSpotLogged;
+        // Здания, для которых не нашлось места, — когда пробовать снова
+        readonly Dictionary<StructureType, float> noSpotUntil = new();
+        const float NoSpotRetry = 30f;
         int spotsByRules;
         string lastPassageReason;
 
@@ -248,14 +263,7 @@ namespace Generals
         {
             // Копить не больше, чем нужно на следующую волну (плюс отряд на защиту): лишняя толпа у
             // ворот только ест деньги стройки (автотест: 18 отрядов у ворот и ни одного нового здания)
-            int squads = 0;
-            foreach (var squad in me.squads)
-                if (squad.IsAlive && squad.Behavior == BarracksBehavior.Defend)
-                    squads++;
-            foreach (var s in me.structures)
-                if (s != null && s.Barracks != null)
-                    squads += s.Barracks.Queued;
-            if (squads >= waveSize + 1)
+            if (SquadsAtHome() >= waveSize + 1)
                 return;
 
             foreach (var s in me.structures)
@@ -308,13 +316,36 @@ namespace Generals
             var factory = BuiltFactory();
             if (factory == null || factory.Queued >= 1)
                 return;
+            // Машин в обороне — не больше размера волны (иначе в мирное время копились без предела)
+            int vehiclesAtHome = 0;
+            foreach (var v in me.vehicles)
+                if (v != null && v.IsAlive && v.Behavior == BarracksBehavior.Defend)
+                    vehiclesAtHome++;
+            if (vehiclesAtHome >= waveSize)
+                return;
 
             float roll = Random.value;
             var type = roll < 0.5f && me.KnowsVehicle(VehicleType.Tank) ? VehicleType.Tank
                      : roll < 0.75f && me.KnowsVehicle(VehicleType.Artillery) ? VehicleType.Artillery
                      : VehicleType.Scout;
-            if (me.baseResource - VehicleCatalog.Get(type).cost >= reserve)
+            // Пока отрядов на волну не хватает — машина, только если останется и на отряд: дешёвый
+            // разведчик иначе забирал все деньги раньше отряда (автотест: 24 разведчика и ни одного отряда)
+            float keep = reserve + (SquadsAtHome() < waveSize ? UnitCatalog.SquadCost : 0);
+            if (me.baseResource - VehicleCatalog.Get(type).cost >= keep)
                 factory.TryHire(type, out _);
+        }
+
+        // Отряды на базе (в обороне) и заказанные в казармах
+        int SquadsAtHome()
+        {
+            int squads = 0;
+            foreach (var squad in me.squads)
+                if (squad.IsAlive && squad.Behavior == BarracksBehavior.Defend)
+                    squads++;
+            foreach (var s in me.structures)
+                if (s != null && s.Barracks != null)
+                    squads += s.Barracks.Queued;
+            return squads;
         }
 
         // ---------- Застройка ----------
@@ -364,7 +395,7 @@ namespace Generals
                         var candidate = start + new int2(dx, dz);
                         // Проходы (дорогая проверка) — последней
                         if (!grid.CanPlace(me, def, candidate, out _, out _, checkPassages: false) ||
-                            !grid.HasClearance(candidate, def.footprint, Clearance) ||
+                            !grid.HasClearance(candidate, def.footprint, def.type == StructureType.Factory ? 1 : Clearance) ||
                             InCorridor(candidate, def.footprint))
                             continue;
                         spotsByRules++;

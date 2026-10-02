@@ -334,6 +334,9 @@ namespace Generals
             if (agent.remainingDistance > 1.5f || (navDestination - transform.position).sqrMagnitude < 4f)
                 return;
             partialTimer = 2f;
+            // Обрывок кончился прямо на месте — агент на отрезанном куске сетки: вытолкнуть
+            if (!agent.hasPath)
+                Nav.Unstick(agent, Nav.Infantry, MatchManager.Instance.GateOf(Faction));
             agent.SetDestination(navDestination);
         }
 

@@ -9,7 +9,7 @@ public struct ArenaGenSettings
 {
     // Меняется, когда в настройках появляются новые поля:
     // сцена со старой версией получает значения по умолчанию
-    public const int CurrentVersion = 9;
+    public const int CurrentVersion = 10;
 
     [HideInInspector] public int version;
     public int seed;
@@ -80,9 +80,11 @@ public struct ArenaGenSettings
         highShare = 0.24f,
         levelNoiseScale = 0.02f,
         minRegionCells = 90,
-        wallLevel1Size = 32,
-        wallLevel2Size = 44,
-        wallLevel3Size = 56,
+        // Стартовая база 22×22 м (было 16×16): с проходами 3 м между зданиями на ней помещаются
+        // казармы, завод и остальное (решение автора 02.10.2026)
+        wallLevel1Size = 44,
+        wallLevel2Size = 52,
+        wallLevel3Size = 60,
         wallThickness = 2,
         wallHeight = 4,
         // Ворота и рампы — под технику (танк ~2 м, решение автора 01.10.2026)

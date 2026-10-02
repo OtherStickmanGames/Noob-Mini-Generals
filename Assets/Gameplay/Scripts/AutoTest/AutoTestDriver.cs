@@ -119,6 +119,8 @@ namespace Generals
                 nextShot = Time.time + 5f;
                 Directory.CreateDirectory(outputDir);
                 Log($"Старт: сид {match.Arena.Seed}, ИИ за обе стороны, время ×{timeScale}, бонус {bonusIncome}/с");
+                pendingCarveProbe = true;
+                carveProbeTime = Time.time + 3f;
                 return;
             }
 
@@ -126,6 +128,12 @@ namespace Generals
             {
                 match.Player.baseResource += bonusIncome * Time.deltaTime;
                 match.Enemy.baseResource += bonusIncome * Time.deltaTime;
+            }
+
+            if (pendingCarveProbe && Time.time >= carveProbeTime)
+            {
+                pendingCarveProbe = false;
+                CarveProbe();
             }
 
             if (Time.time >= nextCheck)
@@ -164,10 +172,14 @@ namespace Generals
                     if (b == null)
                         continue;
                     var t = b.Target;
+                    var a = b.GetComponent<NavMeshAgent>();
                     Log(t == null
                         ? $"Строитель стороны {f.team} в {Round(b.transform.position)}: без работы"
                         : $"Строитель стороны {f.team} в {Round(b.transform.position)}: «{t.Def.name}» в {Round(t.transform.position)}, " +
-                          $"до неё {t.DistanceTo(b.transform.position):0.0} м, готово {t.Progress:P0}");
+                          $"до неё {t.DistanceTo(b.transform.position):0.0} м, готово {t.Progress:P0}; агент: путь {a.pathStatus}, " +
+                          $"осталось {a.remainingDistance:0.0}, стоп {a.isStopped}, есть путь {a.hasPath}, ищет {a.pathPending}, скорость {a.velocity.magnitude:0.0}; " +
+                          $"точка {(b.WorkPoint.HasValue ? Round(b.WorkPoint.Value) + $" (от стройки {t.DistanceTo(b.WorkPoint.Value):0.0} м)" : "нет")}, работает {b.Working}, " +
+                          $"стройка жива {t.IsAlive}, достроена {t.IsBuilt}");
                 }
             }
         }
@@ -251,6 +263,8 @@ namespace Generals
             }
             else if (Time.time - last.time > StuckWindow && reportedStuck.Add(key))
             {
+                if (stuckShots++ < 3)
+                    ShotTop($"stuck{faction.team}", position);
                 // Проверочный путь до своих ворот: полный — значит, агент не нашёл путь сам (ограничение
                 // поиска), неполный — настоящий тупик
                 var gatePath = new NavMeshPath();
@@ -258,7 +272,9 @@ namespace Generals
                 var filter = new NavMeshQueryFilter { agentTypeID = agent.agentTypeID, areaMask = NavMesh.AllAreas };
                 string toGate = NavMesh.SamplePosition(gate, out var gateHit, 4f, filter) &&
                                 NavMesh.CalculatePath(position, gateHit.position, filter, gatePath)
-                    ? $"{gatePath.status}, углов {gatePath.corners.Length}" : "не найден";
+                    ? $"{gatePath.status}, углов {gatePath.corners.Length}, конец {Round(gatePath.corners[^1])}, ворота {Round(gateHit.position)}" : "не найден";
+                if (gatePath.status == NavMeshPathStatus.PathPartial)
+                    toGate += GapProbe(gatePath.corners[^1], gateHit.position, filter, faction);
                 Problem($"сторона {faction.team}: застрял в {Round(position)} ({details}), до цели {agent.remainingDistance:0.0} м, " +
                         $"путь {agent.pathStatus}, назначение {Round(agent.destination)}, проверочный путь до ворот: {toGate}");
             }
@@ -274,6 +290,71 @@ namespace Generals
             else
             {
                 attackingAtHomeSince.Remove(key);
+            }
+        }
+
+        // От конца неполного пути к воротам по прямой: первая точка без NavMesh и ближайшее к ней здание —
+        // видно, на сколько сетка на деле отступает от зданий
+        string GapProbe(Vector3 from, Vector3 to, NavMeshQueryFilter filter, Faction faction)
+        {
+            var step = (to - from);
+            step.y = 0f;
+            float length = step.magnitude;
+            step /= Mathf.Max(length, 0.01f);
+            for (float d = 0.5f; d < length; d += 0.5f)
+            {
+                var p = from + step * d;
+                if (NavMesh.SamplePosition(p, out _, 0.3f, filter))
+                    continue;
+                Structure nearest = null;
+                float best = float.MaxValue;
+                foreach (var f in new[] { match.Player, match.Enemy })
+                    foreach (var s in f.structures)
+                    {
+                        if (s == null)
+                            continue;
+                        float dist = s.DistanceTo(p);
+                        if (dist < best)
+                        {
+                            best = dist;
+                            nearest = s;
+                        }
+                    }
+                return $"; нет сетки в {Round(p)}, ближе всего «{nearest?.Def.name}» в {best:0.00} м";
+            }
+            return "; по прямой сетка до ворот есть";
+        }
+
+        bool pendingCarveProbe;
+        float carveProbeTime;
+
+        // На каком расстоянии от края главного здания начинается NavMesh пехоты и техники (вырез
+        // здания из сетки): ожидаемо — радиус агента (0.5 и 1.1 м)
+        void CarveProbe()
+        {
+            var hq = match.Player.headquarters;
+            var nav = match.ArenaNav;
+            foreach (var (label, id) in new[] { ("пехота", nav.AgentTypeID), ("техника", nav.VehicleAgentTypeID) })
+            {
+                var filter = new NavMeshQueryFilter { agentTypeID = id, areaMask = NavMesh.AllAreas };
+                var result = new StringBuilder($"Вырез главного здания, {label}: ");
+                foreach (var dir in new[] { Vector3.right, Vector3.left, Vector3.forward, Vector3.back })
+                {
+                    float edge = Mathf.Abs(Vector3.Dot(dir, new Vector3(hq.HalfExtents.x, 0f, hq.HalfExtents.y)));
+                    float found = -1f;
+                    for (float d = 0.1f; d <= 3f; d += 0.1f)
+                    {
+                        var p = hq.transform.position + dir * (edge + d);
+                        if (NavMesh.SamplePosition(p, out var hit, 0.05f, filter) || NavMesh.SamplePosition(p + Vector3.up * 0.2f, out hit, 0.25f, filter) &&
+                            (new Vector2(hit.position.x - p.x, hit.position.z - p.z)).magnitude < 0.05f)
+                        {
+                            found = d;
+                            break;
+                        }
+                    }
+                    result.Append(found < 0f ? "нет до 3 м; " : $"{found:0.0} м; ");
+                }
+                Log(result.ToString());
             }
         }
 
@@ -323,9 +404,54 @@ namespace Generals
         }
 
         // Кадр сверху-сбоку: камера над точкой, смотрит на неё со стороны lookFrom
+        int stuckShots;
+
+        // Строго сверху: видно, какие здания окружают точку
+        Material lineMaterial;
+
+        // Поверх кадра — рёбра треугольников NavMesh пехоты в радиусе от точки (зелёные): видно, где
+        // сетка на самом деле есть и где рвётся. Для NavMesh техники — оранжевые
+        void DrawNavMesh(Vector3 focus, float radius)
+        {
+            if (lineMaterial == null)
+            {
+                // Встроенный шейдер может не попасть в билд — тогда кадр без сетки
+                var shader = Shader.Find("Hidden/Internal-Colored");
+                if (shader == null)
+                    return;
+                lineMaterial = new Material(shader);
+                lineMaterial.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+            }
+            var previous = RenderTexture.active;
+            RenderTexture.active = shotTexture;
+            GL.PushMatrix();
+            GL.LoadProjectionMatrix(shotCamera.projectionMatrix);
+            GL.modelview = shotCamera.worldToCameraMatrix;
+            lineMaterial.SetPass(0);
+            GL.Begin(GL.LINES);
+            var tri = NavMesh.CalculateTriangulation();
+            for (int i = 0; i + 2 < tri.indices.Length; i += 3)
+            {
+                var a = tri.vertices[tri.indices[i]];
+                var b = tri.vertices[tri.indices[i + 1]];
+                var c = tri.vertices[tri.indices[i + 2]];
+                if ((a - focus).sqrMagnitude > radius * radius)
+                    continue;
+                GL.Color(tri.areas[i / 3] == 0 ? Color.green : Color.red);
+                GL.Vertex(a + Vector3.up * 0.05f); GL.Vertex(b + Vector3.up * 0.05f);
+                GL.Vertex(b + Vector3.up * 0.05f); GL.Vertex(c + Vector3.up * 0.05f);
+                GL.Vertex(c + Vector3.up * 0.05f); GL.Vertex(a + Vector3.up * 0.05f);
+            }
+            GL.End();
+            GL.PopMatrix();
+            RenderTexture.active = previous;
+        }
+
+        void ShotTop(string label, Vector3 focus) => Shot(label, focus, focus + Vector3.forward, 0.5f, 22f, true);
+
         void ShotClose(string label, Vector3 focus) => Shot(label, focus, focus + Vector3.forward, 7f, 6f);
 
-        void Shot(string label, Vector3 focus, Vector3 lookFrom, float back = 18f, float up = 26f)
+        void Shot(string label, Vector3 focus, Vector3 lookFrom, float back = 18f, float up = 26f, bool navMesh = false)
         {
             if (shotCamera == null)
             {
@@ -346,6 +472,8 @@ namespace Generals
             shotCamera.transform.position = focus - away * back + Vector3.up * up;
             shotCamera.transform.LookAt(focus);
             shotCamera.Render();
+            if (navMesh)
+                DrawNavMesh(focus, 16f);
 
             var previous = RenderTexture.active;
             RenderTexture.active = shotTexture;
@@ -380,7 +508,8 @@ namespace Generals
                 var names = new List<string>();
                 foreach (var s in f.structures)
                     if (s != null)
-                        names.Add(s.IsBuilt ? s.Def.name : s.Def.name + " (строится)");
+                        names.Add((s.IsBuilt ? s.Def.name : s.Def.name + " (строится)") +
+                                  $" [клетки {s.MinCell.x}..{s.MinCell.x + s.Def.footprint.x - 1}, {s.MinCell.y}..{s.MinCell.y + s.Def.footprint.y - 1}]");
                 summary.AppendLine($"Постройки стороны {f.team}: {string.Join(", ", names)}");
             }
             summary.AppendLine($"Ошибок в консоли: {errors}, предупреждений: {warnings}");

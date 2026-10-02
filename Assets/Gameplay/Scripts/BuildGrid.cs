@@ -137,7 +137,7 @@ namespace Generals
         // ---------- Проходы ----------
 
         // Просвет вокруг клетки, по которой пройдёт агент (NavMesh сужает проходы на его радиус с
-        // каждой стороны): пехоте (радиус 0.5 м) нужен проход в 3 клетки, технике (1.1 м) — в 5
+        // каждой стороны), плюс квадрат 2×2 (см. Flood): пехоте нужен проход в 4 клетки, технике — в 6
         const int InfantryClearance = 1;
         const int VehicleClearance = 2;
         // С базы нужно уметь выйти: заливка от ворот должна дойти до края области базы
@@ -184,7 +184,7 @@ namespace Generals
 
             Flood(gate, VehicleClearance, out _);
             if (def.type == StructureType.Factory && !Reachable(min, def.footprint, VehicleClearance + 2))
-                return "Заводу нужен проезд к воротам для техники";
+                return $"Заводу нужен проезд к воротам для техники (по ширине машины от ворот доступно клеток: {ReachedCount()})";
             foreach (var s in structures)
                 if (s != null && s.Def.type == StructureType.Factory && !Reachable(s.MinCell, s.Def.footprint, VehicleClearance + 2))
                     return "Перекроет проезд от завода к воротам";
@@ -194,6 +194,15 @@ namespace Generals
         // Сколько клеток с просветом могут отрезаться в нише (угол между зданием и стеной) — такие
         // мелкие ниши не мешают, а запрещать их — значит запрещать почти любое место у стены
         const int PocketTolerance = 12;
+
+        int ReachedCount()
+        {
+            int n = 0;
+            for (int i = 0; i < boxSize.x * boxSize.y; i++)
+                if (reached[i])
+                    n++;
+            return n;
+        }
 
         bool OnWall(Structure s) => wallCells[Idx(s.MinCell.x, s.MinCell.y)];
 
@@ -309,6 +318,16 @@ namespace Generals
                 walkCells[i] = free;
                 reached[i] = false;
             }
+            // Проход засчитывается, только если в нём помещается квадрат 2×2 таких клеток: полоса в одну
+            // клетку (проход 1.5 м между зданиями) по расчёту проходима, но NavMesh при вырезании зданий
+            // её теряет (автотест: бойцы заперты за проходом в 3 клетки между добытчиками). По возрастанию
+            // индекса: клетки справа и снизу ещё не переписаны
+            for (int i = 0; i < n; i++)
+            {
+                int bx = i % w, bz = i / w;
+                walkCells[i] = walkCells[i] && bx + 1 < w && bz + 1 < h &&
+                               walkCells[i + 1] && walkCells[i + w] && walkCells[i + w + 1];
+            }
 
             exit = false;
             // Ворота — клетка снаружи прохода; если она сама без просвета — ближайшая с просветом рядом
@@ -398,6 +417,9 @@ namespace Generals
             if (rule == PlacementRule.BaseArea && layout.baseArea[i] != faction.team + 1)
                 return "Оборону можно ставить только у своей базы";
 
+            if (NearBuilding(x, z))
+                return "Нужен проход 3 м до соседнего здания";
+
             if (arena.IsWaterAt(x, z))
                 return "Здесь вода";
 
@@ -412,6 +434,22 @@ namespace Generals
                 return "Место занято";
 
             return null;
+        }
+
+        /// <summary>
+        /// Между зданиями — проход не меньше BuildingGap клеток (3 м), как в RTS со стройкой: в узких
+        /// щелях (до 2 м) NavMesh после вырезания зданий на стыках углов рвётся, и бойцы оказывались заперты
+        /// (автотест, кадры с сеткой). Так любой просвет между зданиями точно проходим
+        /// </summary>
+        public const int BuildingGap = 6;
+
+        bool NearBuilding(int x, int z)
+        {
+            for (int dz = -BuildingGap; dz <= BuildingGap; dz++)
+                for (int dx = -BuildingGap; dx <= BuildingGap; dx++)
+                    if (Inside(x + dx, z + dz) && occupied[Idx(x + dx, z + dz)])
+                        return true;
+            return false;
         }
 
         bool InsideOwnWalls(Faction faction, int i)
